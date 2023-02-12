@@ -68,7 +68,7 @@
 
 
 
-  <meta name="keywords" content="年度总结," />
+  <meta name="keywords" content="Elasticsearch源码分析&实战," />
 
 
 
@@ -79,17 +79,17 @@
 
 
 
-<meta name="description" content="2022依旧过得很快，回顾往昔感慨颇多，遗憾与满足同在，不可避免的老去，一年又一年。 当然2022对我来说不是完全的唱衰，虽然有不可逃避的抉择和但也一一面对过，想起这些事情，落笔时的悲伤和低落的情绪便如雪花坠地般迅速崩解了。最初兴起这个念头是12月26号网易云推送的年度报告，过去的这一年中听过的歌单前三居然是许美静的都市夜归人、王菲的微风细雨、Matthew Lien的Bressanone，老歌总">
+<meta name="description" content="当ES集群更新配置、升级版本时，需要通过“kill”ES进程来关闭节点。::ES进程会捕获SIGTERM信号(kill命令默认信号)进行处理，调用各模块的stop方法停止服务并安全退出。::  如果主节点被关闭，集群会重新选主，在这个期间集群会进入短暂的无主状态。 如果数据节点被关闭，则读写请求的TCP连接也会关闭，对客户端来说写操作执行失败，但写流程已经达到Engine流程的会正常写入，只是客户">
 <meta property="og:type" content="article">
-<meta property="og:title" content="2022年度总结&amp;未来规划">
-<meta property="og:url" content="http://example.com/2023/01/01/2022%E5%B9%B4%E5%BA%A6%E6%80%BB%E7%BB%93&%E6%9C%AA%E6%9D%A5%E8%A7%84%E5%88%92/">
+<meta property="og:title" content="ES源码分析四、节点在关闭时发生了什么？">
+<meta property="og:url" content="http://example.com/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
 <meta property="og:site_name" content="日暮入桃源">
-<meta property="og:description" content="2022依旧过得很快，回顾往昔感慨颇多，遗憾与满足同在，不可避免的老去，一年又一年。 当然2022对我来说不是完全的唱衰，虽然有不可逃避的抉择和但也一一面对过，想起这些事情，落笔时的悲伤和低落的情绪便如雪花坠地般迅速崩解了。最初兴起这个念头是12月26号网易云推送的年度报告，过去的这一年中听过的歌单前三居然是许美静的都市夜归人、王菲的微风细雨、Matthew Lien的Bressanone，老歌总">
+<meta property="og:description" content="当ES集群更新配置、升级版本时，需要通过“kill”ES进程来关闭节点。::ES进程会捕获SIGTERM信号(kill命令默认信号)进行处理，调用各模块的stop方法停止服务并安全退出。::  如果主节点被关闭，集群会重新选主，在这个期间集群会进入短暂的无主状态。 如果数据节点被关闭，则读写请求的TCP连接也会关闭，对客户端来说写操作执行失败，但写流程已经达到Engine流程的会正常写入，只是客户">
 <meta property="og:locale">
-<meta property="article:published_time" content="2022-12-31T17:41:56.000Z">
-<meta property="article:modified_time" content="2023-01-02T12:43:16.416Z">
+<meta property="article:published_time" content="2021-09-09T00:55:14.000Z">
+<meta property="article:modified_time" content="2023-02-12T08:05:07.001Z">
 <meta property="article:author" content="ondestinies">
-<meta property="article:tag" content="年度总结">
+<meta property="article:tag" content="Elasticsearch源码分析&amp;实战">
 <meta name="twitter:card" content="summary">
 
 
@@ -120,13 +120,13 @@
 
 
 
-  <link rel="canonical" href="http://example.com/2023/01/01/2022年度总结&未来规划/"/>
+  <link rel="canonical" href="http://example.com/2021/09/09/ES源码分析四：节点在关闭时发生了什么？/"/>
 
 
 
 
 
-  <title>2022年度总结&未来规划 | 日暮入桃源</title>
+  <title>ES源码分析四、节点在关闭时发生了什么？ | 日暮入桃源</title>
   
 
 
@@ -233,7 +233,7 @@
   
   
   <div class="post-block">
-    <link itemprop="mainEntityOfPage" href="http://example.com/2023/01/01/2022%E5%B9%B4%E5%BA%A6%E6%80%BB%E7%BB%93&%E6%9C%AA%E6%9D%A5%E8%A7%84%E5%88%92/">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="name" content="">
@@ -250,7 +250,7 @@
 
         
         
-          <h1 class="post-title" itemprop="name headline">2022年度总结&未来规划</h1>
+          <h1 class="post-title" itemprop="name headline">ES源码分析四、节点在关闭时发生了什么？</h1>
         
 
         <div class="post-meta">
@@ -262,8 +262,8 @@
               
                 <span class="post-meta-item-text">发表于</span>
               
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2023-01-01T01:41:56+08:00">
-                2023-01-01
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-09-09T08:55:14+08:00">
+                2021-09-09
               </time>
             
 
@@ -300,21 +300,47 @@
       
 
       
-        <p>2022依旧过得很快，回顾往昔感慨颇多，遗憾与满足同在，不可避免的老去，一年又一年。</p>
-<p>当然2022对我来说不是完全的唱衰，虽然有不可逃避的抉择和但也一一面对过，想起这些事情，落笔时的悲伤和低落的情绪便如雪花坠地般迅速崩解了。最初兴起这个念头是12月26号网易云推送的年度报告，过去的这一年中听过的歌单前三居然是许美静的都市夜归人、王菲的微风细雨、Matthew Lien的Bressanone，老歌总是能激荡起心底那份沉寂已久的情绪，所以我也想把过去的经历心绪都整理出来，留待未来的某个时间不经意间打开时也能在内心泛起一些对往日所作所为所感所想的回忆，就如同老歌，那些被世代传承的。</p>
-<p>回想过往一年间，给自己的一句话总结就是矛盾结合体，拒绝用优柔寡断来评价自己是因为虽然这一年内面对好多次抉择也有过犹豫纠结，但最终也确是克服了内心的障碍，选择了一条现在看来还是不错的旅程。最多的矛盾体现在工作上，年初的三月想要停止现在这份工作跟朋友合办一家工作室，工作方向是对</p>
-<p>在过去的几个月中也持续性的考虑了未来对自己的经营和规划，23年计划做这些事：</p>
-<h2 id="工作"><a href="#工作" class="headerlink" title="工作"></a>工作</h2><ol>
-<li>222</li>
-<li>2233</li>
-<li>344</li>
+        <p>当ES集群更新配置、升级版本时，需要通过“kill”ES进程来关闭节点。<br>::ES进程会捕获SIGTERM信号(kill命令默认信号)进行处理，调用各模块的stop方法停止服务并安全退出。::</p>
+<ul>
+<li>如果主节点被关闭，集群会重新选主，在这个期间集群会进入短暂的无主状态。</li>
+<li>如果数据节点被关闭，则读写请求的TCP连接也会关闭，对客户端来说写操作执行失败，但写流程已经达到Engine流程的会正常写入，只是客户端无法感知结果。此时客户端重试，如果使用自动生成 ID，则数据内容会重复。</li>
+</ul>
+<p><del>综合来说，滚动升级产生的影响是中断当前读写请求，以及主节点重启可能引起的分片分配过程。</del></p>
+<h2 id="4-1-关闭流程分析"><a href="#4-1-关闭流程分析" class="headerlink" title="4.1 关闭流程分析"></a>4.1 关闭流程分析</h2><p>每个模块的Service中都实现了doStop和doClose方法，用于处理这个模块的正常关闭。<br>节点总的关闭流程位于Node#close，在close方法的实 现中，先调用一遍各个模块的doStop，然后再次遍历各个模块执行 doClose。</p>
+<p>各模块的关闭有一定的顺序，stop方法执行顺序如下：</p>
+<ol>
+<li>ResourceWatcherService 通用资源监视</li>
+<li>HttpServerTransport HTTP传输服务（Rest接口服务）</li>
+<li>SnapshotsService 快照服务</li>
+<li>SnapshotShardsService  shard快照服务（负责启动和通知shard级快照）</li>
+<li>IndicesClusterStateService 收集状态信息后处理其中索引相关操作</li>
+<li>Discovery 集群拓扑管理</li>
+<li>RoutingService 处理reroute（节点之间迁移shard）</li>
+<li>ClusterService 集群管理服务（处理集群任务、发布集群状态）</li>
+<li>NodeConnectionsService 节点连接管理服务</li>
+<li>MonitorService 提供进程级、系统级、文件系统和JVM的监控服务</li>
+<li>GatewayService 负责集群元数据持久化与恢复</li>
+<li>SearchService 处理搜索请求</li>
+<li>TransportService 底层传输服务</li>
+<li>plugins  当前的所有插件</li>
+<li>IndicesService 负责创建、删除索引等操作</li>
 </ol>
-<h2 id="学习"><a href="#学习" class="headerlink" title="学习"></a>学习</h2><ol>
-<li>读书：在自己喜欢的方向上挑两本经典的技术类书籍深入读下去，不断输出高质量读书笔记，转化成自己的技术思维和领悟。另外年中9月买了《东晋门阀政治》和《弃长安》，到现在零零散散各翻了几十页，计划一年中读完这两本书。</li>
-<li>技术：一个方向是之前一直想要深入的了解下Dubbo的底层原理，22年浅浅的了解了Dubbo的代码架构设计，因为个人的懒惰，这个研究并没有深入进去，在年终11月以后的有一些工作需要自己去设计架构并落地，但这确是自己的一个短板，23年计划由此发力，期望能基于这些知识构建出自己的一套技术理论；第二个方向也是自己平时工作中每天都在接触的Lucene&amp;Elasticsearch，在当前这个领域中想要持续发展下去当真是 需要对这两块的东西研究个七七八八，对我来说十之一二也没冤枉自己，所以这两个技术方向在23年乃至以后都需要持续的深入研究，保证自己不在大环境中被淘汰。</li>
-</ol>
-<h2 id="兴趣"><a href="#兴趣" class="headerlink" title="兴趣"></a>兴趣</h2><ol>
-<li>旅游：y</li>
+<p>综合来看，关闭顺序大致如下:</p>
+<ul>
+<li>关闭快照和HTTPServer，不再响应用户REST请求。</li>
+<li>关闭集群拓扑管理，不再响应ping请求。</li>
+<li>关闭网络模块，让节点离线。</li>
+<li>执行各个插件的关闭流程。</li>
+<li>关闭IndicesService。<br>最后关闭IndicesService，是因为这期间需要等待释放的资源最多，时间最长。</li>
+</ul>
+<h2 id="4-2-分片读写过程中执行关闭"><a href="#4-2-分片读写过程中执行关闭" class="headerlink" title="4.2 分片读写过程中执行关闭"></a>4.2 分片读写过程中执行关闭</h2><h3 id="4-2-1-写入过程中关闭"><a href="#4-2-1-写入过程中关闭" class="headerlink" title="4.2.1 写入过程中关闭"></a>4.2.1 写入过程中关闭</h3><p>线程在写入数据时，会对Engine加写锁。<br> IndicesService的doStop方法对本节点上全部索引并行执行removeIndex， 当执行到Engine的flushAndClose(先flush然后关闭Engine)，也会对Engine加写锁。由于写入操作已经加了写锁，此时写锁会等待，直到写入执行完毕。因此数据写入过程不会被中断。但是由于网络模块被关闭，客户端的连接会被断开。客户端应当作为失败处理，虽然ES服务端 的写流程还在继续。</p>
+<h3 id="4-2-2-读取过程中关闭"><a href="#4-2-2-读取过程中关闭" class="headerlink" title="4.2.2 读取过程中关闭"></a>4.2.2 读取过程中关闭</h3><p>线程在读取数据时，会对Engine加读锁。 flushAndClose时的写锁会等待读取过程执行完毕。<br>但是由于连接被关 闭，无法发送给客户端，导致客户端读失败。</p>
+<p>节点关闭过程中，IndicesService的doStop对Engine设置了超时，如果flushAndClose一直等待，则CountDownLatch.await默认1天才会继续后面的流程。</p>
+<h2 id="4-3-主节点被关闭"><a href="#4-3-主节点被关闭" class="headerlink" title="4.3 主节点被关闭"></a>4.3 主节点被关闭</h2><p>节点正常执行关闭流程，当TransportService模块被关闭后，集群重新选举新Master。</p>
+<h2 id="4-4-总结"><a href="#4-4-总结" class="headerlink" title="4.4 总结"></a>4.4 总结</h2><ol>
+<li>节点启动流程做初始化和检查工作，各个子模块启动后异步开始工作如: 加载本地数据、选主、加入集群等。</li>
+<li>节点在关闭时也有机会处理已经收到的请求，但是写完后或许无法返回客户端，线程池中未执行完的任务在超时时间之内也会继续执行。</li>
+<li>::集群健康从Red到Green的时间主要是消耗在维护主副分片的一致性上::。</li>
 </ol>
 
       
@@ -333,7 +359,7 @@
       
         <div class="post-tags">
           
-            <a href="/tags/%E5%B9%B4%E5%BA%A6%E6%80%BB%E7%BB%93/" rel="tag"># 年度总结</a>
+            <a href="/tags/Elasticsearch%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90-%E5%AE%9E%E6%88%98/" rel="tag"># Elasticsearch源码分析&实战</a>
           
         </div>
       
@@ -346,8 +372,8 @@
         <div class="post-nav">
           <div class="post-nav-next post-nav-item">
             
-              <a href="/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/" rel="next" title="ES源码分析六、集群写入流程">
-                <i class="fa fa-chevron-left"></i> ES源码分析六、集群写入流程
+              <a href="/2021/09/01/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%89%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%90%AF%E5%8A%A8%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/" rel="next" title="ES源码分析三、节点在启动时发生了什么？">
+                <i class="fa fa-chevron-left"></i> ES源码分析三、节点在启动时发生了什么？
               </a>
             
           </div>
@@ -356,8 +382,8 @@
 
           <div class="post-nav-prev post-nav-item">
             
-              <a href="/2023/02/12/kafka%E5%85%A5%E9%97%A8/" rel="prev" title="kafka入门">
-                kafka入门 <i class="fa fa-chevron-right"></i>
+              <a href="/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/" rel="prev" title="ES源码分析五、集群是如何确定主节点的？">
+                ES源码分析五、集群是如何确定主节点的？ <i class="fa fa-chevron-right"></i>
               </a>
             
           </div>
@@ -481,7 +507,7 @@
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%B7%A5%E4%BD%9C"><span class="nav-number">1.</span> <span class="nav-text">工作</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AD%A6%E4%B9%A0"><span class="nav-number">2.</span> <span class="nav-text">学习</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%B4%E8%B6%A3"><span class="nav-number">3.</span> <span class="nav-text">兴趣</span></a></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#4-1-%E5%85%B3%E9%97%AD%E6%B5%81%E7%A8%8B%E5%88%86%E6%9E%90"><span class="nav-number">1.</span> <span class="nav-text">4.1 关闭流程分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-2-%E5%88%86%E7%89%87%E8%AF%BB%E5%86%99%E8%BF%87%E7%A8%8B%E4%B8%AD%E6%89%A7%E8%A1%8C%E5%85%B3%E9%97%AD"><span class="nav-number">2.</span> <span class="nav-text">4.2 分片读写过程中执行关闭</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-1-%E5%86%99%E5%85%A5%E8%BF%87%E7%A8%8B%E4%B8%AD%E5%85%B3%E9%97%AD"><span class="nav-number">2.1.</span> <span class="nav-text">4.2.1 写入过程中关闭</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-2-%E8%AF%BB%E5%8F%96%E8%BF%87%E7%A8%8B%E4%B8%AD%E5%85%B3%E9%97%AD"><span class="nav-number">2.2.</span> <span class="nav-text">4.2.2 读取过程中关闭</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-3-%E4%B8%BB%E8%8A%82%E7%82%B9%E8%A2%AB%E5%85%B3%E9%97%AD"><span class="nav-number">3.</span> <span class="nav-text">4.3 主节点被关闭</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-4-%E6%80%BB%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">4.4 总结</span></a></li></ol></div>
             
 
           </div>

@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+
+
+
+  
+
+
+<html class="theme-next muse use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.4" rel="stylesheet" type="text/css" />
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=5.1.4">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=5.1.4" color="#222">
+
+
+
+
+
+  <meta name="keywords" content="Elasticsearch源码分析&实战," />
+
+
+
+
+
+
+
+
+
+
+<meta name="description" content="在ES中，单个写入文档的请求被称为Index请求；批量写入文档的请求被称为Bulk请求。写入单个或者多个文档的请求都被封装为BulkRequest请求。 几种文档操作的定义123enum OpType &amp;#123;INDEX(0)， CREATE(1)， UPDATE(2)， DELETE(3);&amp;#125;  INDEX : 向索引中PUT一个文档的操作被称为“索引“一个文档。CREATE :">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ES源码分析六、集群写入流程">
+<meta property="og:url" content="http://example.com/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/">
+<meta property="og:site_name" content="日暮入桃源">
+<meta property="og:description" content="在ES中，单个写入文档的请求被称为Index请求；批量写入文档的请求被称为Bulk请求。写入单个或者多个文档的请求都被封装为BulkRequest请求。 几种文档操作的定义123enum OpType &amp;#123;INDEX(0)， CREATE(1)， UPDATE(2)， DELETE(3);&amp;#125;  INDEX : 向索引中PUT一个文档的操作被称为“索引“一个文档。CREATE :">
+<meta property="og:locale">
+<meta property="og:image" content="http://example.com/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/5EEFB82B-7A1D-4C5D-9CB9-64F6A4BED484.png">
+<meta property="article:published_time" content="2021-10-05T20:41:11.000Z">
+<meta property="article:modified_time" content="2023-02-12T08:05:49.992Z">
+<meta property="article:author" content="ondestinies">
+<meta property="article:tag" content="Elasticsearch源码分析&amp;实战">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/5EEFB82B-7A1D-4C5D-9CB9-64F6A4BED484.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '',
+    scheme: 'Muse',
+    version: '5.1.4',
+    sidebar: {"position":"left","display":"post","offset":12,"b2t":false,"scrollpercent":false,"onmobile":false},
+    fancybox: true,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://example.com/2021/10/06/ES源码分析六：集群写入流程/"/>
+
+
+
+
+
+  <title>ES源码分析六、集群写入流程 | 日暮入桃源</title>
+  
+
+
+
+
+
+
+
+
+<meta name="generator" content="Hexo 6.3.0"></head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta ">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">日暮入桃源</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <p class="site-subtitle">命数如织，当为磐石</p>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">ES源码分析六、集群写入流程</h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-10-06T04:41:11+08:00">
+                2021-10-06
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p>在ES中，单个写入文档的请求被称为Index请求；批量写入文档的请求被称为Bulk请求。<br>写入单个或者多个文档的请求都被封装为BulkRequest请求。</p>
+<h2 id="几种文档操作的定义"><a href="#几种文档操作的定义" class="headerlink" title="几种文档操作的定义"></a>几种文档操作的定义</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">enum OpType &#123;</span><br><span class="line">INDEX(0)， CREATE(1)， UPDATE(2)， DELETE(3);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>INDEX : 向索引中PUT一个文档的操作被称为“索引“一个文档。<br>CREATE : PUT请求中如果携带参数 op_type:create ，如果主键在索引中已存在，那么索引失败。<br>UPDATE : 默认向索引中PUT一个文档，如果该文档已存在，那么更新它。<br>DELETE :  删除文档</p>
+<h2 id="OP-TYPE可选参数"><a href="#OP-TYPE可选参数" class="headerlink" title="OP_TYPE可选参数"></a>OP_TYPE可选参数</h2><p>写入文档时，可以通过op_type来指定操作类型。</p>
+<ol>
+<li>Version ： 指定文档版本号，主要用于实现乐观锁<br>::乐观锁:::</li>
+<li>version_type : 控制版本号的比较，在文档并发更新时同步数据<br>::默认为internal，参数指定的版本号与文档中版本号相同则写入::<br>::external:当前索引中该文档对应版本号小于请求参数中的版本号则写入::</li>
+<li>op_type :  文档写入时的操作类型<br>::可设置为true，如果索引中主键不存在则写入，若存在则写入失败::</li>
+<li>routing : 指定路由规则<br>::默认按照索引主键路由，指定routing后按照routing路由::</li>
+<li>wait_for_active_shards : 用于控制写一致性，当指定数量的分片副本可用时执行写入，否则写入失败，默认为1，主分片可用时即可写入。</li>
+<li>refresh : 写入完毕后立即执行refresh操作，使搜索可见。</li>
+<li>timeout : 请求超时时间，默认1min。</li>
+<li>Pipeline :  指定事先创建好的pipeline名称。</li>
+</ol>
+<h2 id="1-1-Index-x2F-Bulk基本流程"><a href="#1-1-Index-x2F-Bulk基本流程" class="headerlink" title="1.1 Index&#x2F;Bulk基本流程"></a>1.1 Index&#x2F;Bulk基本流程</h2><p>新建、索引、删除都是写操作，必须在主分片执行成功后才复制到副本分片。</p>
+<h3 id="1-1-1-单个文档写入步骤"><a href="#1-1-1-单个文档写入步骤" class="headerlink" title="1.1.1 单个文档写入步骤"></a>1.1.1 单个文档写入步骤</h3><ol>
+<li>客户端向Node1发送写入请求，此时Node1被称为协调节点。</li>
+<li>Node1拿到文档的主键后经过路由规则（默认取模？）确定文档属于分片0，通过集群状态中<br>的内容路由表信息获知分片0的主分片位于NODE3，因此请求被转发到 NODE3上。</li>
+<li>NODE3上的主分片执行写操作。如果写入成功，则它将请求 并行转发到 NODE1和NODE2的副分片上，等待返回结果。当所有的副 分片都报告成功，NODE3将向协调节点报告成功，协调节点再向客户端报告成功。</li>
+</ol>
+<p>在客户端收到写入成功的消息回应后，主分片和副本分片都已经写入成功。</p>
+<blockquote>
+<p>写一致性的默认策略是quorum，即多数的分片(其中分片副本可以是主分片或副分片)在写入操作时处于可用状态。<br>quorum &#x3D; int( (primary + number_of_replicas) &#x2F; 2 ) + 1</p>
+</blockquote>
+<h3 id="1-1-2-文档写入详细流程"><a href="#1-1-2-文档写入详细流程" class="headerlink" title="1.1.2 文档写入详细流程"></a>1.1.2 文档写入详细流程</h3><p><img src="/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/5EEFB82B-7A1D-4C5D-9CB9-64F6A4BED484.png"></p>
+<h4 id="1-1-2-1-协调节点写入流程"><a href="#1-1-2-1-协调节点写入流程" class="headerlink" title="1.1.2.1  协调节点写入流程"></a>1.1.2.1  协调节点写入流程</h4><p>协调节点负责创建索引、转发请求到主分片节点、等待响应、回复客户端。<br><del>实现位于TransportBulkAction。执行本流程的线程池: http_server_worker。</del></p>
+<ul>
+<li>参数检查：对index&#x2F;type&#x2F;source&#x2F;contextType&#x2F;opType&#x2F;version&#x2F;id 等进行检查，如果检查失败直接返回错误。</li>
+<li>pipeline请求处理：请求预处理，如果Index或Bulk请求中指定了pipeline参数，则先使用相应的 pipeline进行处理。如果本节点不具备预处理资格，则将请求随机转发 到其他具备预处理资格的节点。</li>
+<li>自动创建索引：如果配置为自动创建索引，并且当前请求写入的索引不存在，则创建索引，如果索引创建失败，则该请求失败。索引创建成功后将新的集群状态发布完毕（Master发布clusterState的Request收到半数以上的节点Response，认为发布成功）再返回成功。</li>
+<li>对请求的预先处理：不同于请求预处理，对请求的预先处理只是检查参数、自动生成id、处理routing等。<br><del>由于上一步可能有创建索引操作，所以在此先获取最新集群状态信 息。然后遍历所有请求，从集群状态中获取对应索引的元信息，检查 mapping、routing、id等信息。如果id不存在，则生成一个UUID作为文 档id。</del></li>
+<li>检测集群状态：协调节点在开始处理时会先检测集群状态，若集群异常则取消写入。<br><del>Master节点不存在，会阻塞等待Master节点直至超时</del><br><del>索引为Red时，如果Master节点存在，则数据可以写到正常 shard,Master节点不存在，协调节点会阻塞等待或取消写入。</del></li>
+<li>内容路由：构建基于shard的请求（本质是拆分&amp;合并请求的过程）。如果索引10个文档的Bulk请求中有5个文档被路由到分片A，另外5个文档被路由到分片B，那么ES会将前5个文档的请求合并到一起，另外5个文档的请求合并到一起，分别请求不同的分片写入。</li>
+<li>路由算法：根据routing和文档id计算目标shardid的过程。<blockquote>
+<p>计算公式：shard_num &#x3D; hash(_routing) % num_primary_shards   _routing值一般为文档主键<br><del>ES使用随机id和Hash算法来确保文档均匀地分配给分片。当使用自定义id或routing时， id 或 routing 值可能不够随机，造成数据倾斜，部分分片过大。</del></p>
+</blockquote>
+</li>
+<li>转发请求并等待响应：根据集群状态中的内容路由表确定主分片所在节点，转发请求并等待响应。<br><del>遍历所有需要写的 shard，将位于某个 shard 的请求封装为BulkShardRequest 类，调用TransportShardBulkAction#execute执行发送， 在listener中等待响应，每个响应也是以shard为单位的。如果某个shard 的响应中部分doc写失败了，则将异常信息填充到Response中，整体请 求做成功处理。</del></li>
+</ul>
+<h4 id="1-1-2-2-主分片写入流程"><a href="#1-1-2-2-主分片写入流程" class="headerlink" title="1.1.2.2 主分片写入流程"></a>1.1.2.2 主分片写入流程</h4><p>执行本流程的线程池:bulk<br><del>主分片所在节点负责在本地写主分片，写成功后，转发写副本片请求，等待响应，回复协调节点。</del></p>
+<ul>
+<li>检查请求：主要检测当前请求是否是写的主分片；写入的索引是否处于关闭状态等</li>
+<li>是否延迟执行：如果为延迟执行，则放在delay队列中</li>
+<li>判断主分片是否发生迁移：如迁移，则将请求转发到迁移后的节点</li>
+<li>检测写一致性：写入之前需要判断写入的分片活跃数是否足够，不足则取消写入，默认为1，主分片可用即可写入。</li>
+<li>写Lucene和事务日志：遍历请求，处理动态字段映射，通过InternalEngine#index进行逐条写入，索引过程中先写Lucene，再写translog，保证如果Lucene写入失败后避免translog回滚问题。<br><del>写入Lucene之前，先生成Sequence Number和Version。这些都是 在InternalEngine类中实现的。Sequence Number每次递增1,Version根据 当前doc的最大版本加1。</del></li>
+<li>flush translog：根据配置的translog flush策略进行刷盘控制，定时或立即刷盘</li>
+<li>写副本分片：遍历主分片的副本，依次异步写入<br><del>在等待Response的过程中，本节点发出了多少个Request，就要等待 多少个Response。无论这些Response是成功的还是失败的，直到超时。收集到全部的Response后，执行finish()。给协调节点返回消息， 告知其哪些成功、哪些失败了。</del></li>
+<li>处理副本分片写失败情况：主分片所在节点将发送一个shardFailed请求给Master，然后Master会更新集群状态，在新的集群状态中，这个shard将从in_sync_allocations列表中删除；在routing_table的shard列表中将state由STARTED更改为UNASSIGNED；添加到routingNodes的unassignedShards列表。</li>
+</ul>
+<h4 id="1-1-2-3-副本分片写入流程"><a href="#1-1-2-3-副本分片写入流程" class="headerlink" title="1.1.2.3 副本分片写入流程"></a>1.1.2.3 副本分片写入流程</h4><p>执行本流程的线程池:bulk<br>执行流程与主分片基本相同，</p>
+<h2 id="1-2-IO异常处理"><a href="#1-2-IO异常处理" class="headerlink" title="1.2 IO异常处理"></a>1.2 IO异常处理</h2><p>在一个shard上执行的一些操作可能会产生I&#x2F;O异常之类的情况。<br>一 个shard上的CRUD等操作在ES里由一个Engine对象封装，在Engine处理过程中，部分操作产生的部分异常ES会认为有必要关闭此Engine，上报 Master。</p>
+<p>对Engine异常的捕获目前主要通过IOException实现。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">try &#123;</span><br><span class="line">		indexIntoLucene(index, plan); //索引文档到Lucene</span><br><span class="line">&#125; catch (RuntimeException | IoException e) &#123;</span><br><span class="line">     try &#123;</span><br><span class="line">		maybeFailEngine();</span><br><span class="line">	&#125; catch (Exception e) &#123;</span><br><span class="line">		e.printStackPrice();</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Engine类中的maybeFailEngine()负责检查是否应当关闭引擎 failEngine()。</p>
+<p>可能会触发maybeFailEngine的操作有：</p>
+<ul>
+<li>CreateSearcherManager  IOException  创建搜索管理器</li>
+<li>index    IOException、RuntimeException  索引文档</li>
+<li>delete    IOException、RuntimeException  删除文档</li>
+<li>sync flush    IOException   同步刷新</li>
+<li>sync commit    IOException  同步提交</li>
+<li>flush    FlushFailedEngineException  刷盘</li>
+<li>force merge     Exception 手动合并Lucene分段</li>
+</ul>
+<h2 id="1-3-系统特性"><a href="#1-3-系统特性" class="headerlink" title="1.3 系统特性"></a>1.3 系统特性</h2><ul>
+<li>数据可靠性：通过分片副本和事务日志机制保障数据安全。</li>
+<li>服务可用性：在可用性和一致性的取舍方面，默认情况下 ES 更 倾向于可用性，只要主分片可用即可执行写入操作。</li>
+<li>一致性：弱一致性。只要主分片写成功，数据就可能 被读取。因此读取操作在主分片和副分片上可能会得到不同结果。</li>
+<li>原子性：索引的读写、别名更新是原子操作，不会出现中间状 态。但bulk不是原子操作，不能用来实现事务。</li>
+<li>扩展性：主副分片都可以承担读请求，分担系统负载。</li>
+</ul>
+
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Elasticsearch%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90-%E5%AE%9E%E6%88%98/" rel="tag"># Elasticsearch源码分析&实战</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/" rel="next" title="ES源码分析五、集群是如何确定主节点的？">
+                <i class="fa fa-chevron-left"></i> ES源码分析五、集群是如何确定主节点的？
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2023/01/01/2022%E5%B9%B4%E5%BA%A6%E6%80%BB%E7%BB%93&%E6%9C%AA%E6%9D%A5%E8%A7%84%E5%88%92/" rel="prev" title="2022年度总结&未来规划">
+                2022年度总结&未来规划 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <p class="site-description motion-element" itemprop="description"></p>
+          </div>
+
+          <nav class="site-state motion-element">
+
+            
+              <div class="site-state-item site-state-posts">
+              
+                <a href="/archives/%20%7C%7C%20archive">
+              
+                  <span class="site-state-item-count">8</span>
+                  <span class="site-state-item-name">日志</span>
+                </a>
+              </div>
+            
+
+            
+
+            
+              
+              
+              <div class="site-state-item site-state-tags">
+                
+                  <span class="site-state-item-count">3</span>
+                  <span class="site-state-item-name">标签</span>
+                
+              </div>
+            
+
+          </nav>
+
+          
+
+          
+
+          
+          
+
+          
+          
+
+          
+
+        </div>
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%87%A0%E7%A7%8D%E6%96%87%E6%A1%A3%E6%93%8D%E4%BD%9C%E7%9A%84%E5%AE%9A%E4%B9%89"><span class="nav-number">1.</span> <span class="nav-text">几种文档操作的定义</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#OP-TYPE%E5%8F%AF%E9%80%89%E5%8F%82%E6%95%B0"><span class="nav-number">2.</span> <span class="nav-text">OP_TYPE可选参数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#1-1-Index-x2F-Bulk%E5%9F%BA%E6%9C%AC%E6%B5%81%E7%A8%8B"><span class="nav-number">3.</span> <span class="nav-text">1.1 Index&#x2F;Bulk基本流程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-1-%E5%8D%95%E4%B8%AA%E6%96%87%E6%A1%A3%E5%86%99%E5%85%A5%E6%AD%A5%E9%AA%A4"><span class="nav-number">3.1.</span> <span class="nav-text">1.1.1 单个文档写入步骤</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-2-%E6%96%87%E6%A1%A3%E5%86%99%E5%85%A5%E8%AF%A6%E7%BB%86%E6%B5%81%E7%A8%8B"><span class="nav-number">3.2.</span> <span class="nav-text">1.1.2 文档写入详细流程</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#1-1-2-1-%E5%8D%8F%E8%B0%83%E8%8A%82%E7%82%B9%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B"><span class="nav-number">3.2.1.</span> <span class="nav-text">1.1.2.1  协调节点写入流程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-1-2-2-%E4%B8%BB%E5%88%86%E7%89%87%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B"><span class="nav-number">3.2.2.</span> <span class="nav-text">1.1.2.2 主分片写入流程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-1-2-3-%E5%89%AF%E6%9C%AC%E5%88%86%E7%89%87%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B"><span class="nav-number">3.2.3.</span> <span class="nav-text">1.1.2.3 副本分片写入流程</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#1-2-IO%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86"><span class="nav-number">4.</span> <span class="nav-text">1.2 IO异常处理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#1-3-%E7%B3%BB%E7%BB%9F%E7%89%B9%E6%80%A7"><span class="nav-number">5.</span> <span class="nav-text">1.3 系统特性</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2023</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">ondestinies</span>
+
+  
+</div>
+
+
+  <div class="powered-by">由 <a class="theme-link" target="_blank" href="https://hexo.io">Hexo</a> 强力驱动</div>
+
+
+
+  <span class="post-meta-divider">|</span>
+
+
+
+  <div class="theme-info">主题 &mdash; <a class="theme-link" target="_blank" href="https://github.com/iissnan/hexo-theme-next">NexT.Muse</a> v5.1.4</div>
+
+
+
+
+        
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+  
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.4"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.4"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.4"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

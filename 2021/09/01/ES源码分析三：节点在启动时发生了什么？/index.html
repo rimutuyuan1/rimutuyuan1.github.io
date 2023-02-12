@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+
+
+
+  
+
+
+<html class="theme-next muse use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.4" rel="stylesheet" type="text/css" />
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=5.1.4">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=5.1.4" color="#222">
+
+
+
+
+
+  <meta name="keywords" content="Elasticsearch源码分析&实战," />
+
+
+
+
+
+
+
+
+
+
+<meta name="description" content="3.1 ES节点启动流程做了什么？ 解析配置：配置文件和命令行参数 检测外部&#x2F;内部环境：JVM版本，操作系统内核参数等 初始化内部资源：创建内部模块，初始化探测器 启动：各个子模块和keepalive线程启动  3.2 启动流程分析3.2.1 启动脚本解析通过 bin&#x2F;elasticsearch启动ES时，启动脚本通过exec加载Java程序。 12345678exec \">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ES源码分析三、节点在启动时发生了什么？">
+<meta property="og:url" content="http://example.com/2021/09/01/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%89%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%90%AF%E5%8A%A8%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
+<meta property="og:site_name" content="日暮入桃源">
+<meta property="og:description" content="3.1 ES节点启动流程做了什么？ 解析配置：配置文件和命令行参数 检测外部&#x2F;内部环境：JVM版本，操作系统内核参数等 初始化内部资源：创建内部模块，初始化探测器 启动：各个子模块和keepalive线程启动  3.2 启动流程分析3.2.1 启动脚本解析通过 bin&#x2F;elasticsearch启动ES时，启动脚本通过exec加载Java程序。 12345678exec \">
+<meta property="og:locale">
+<meta property="article:published_time" content="2021-08-31T16:25:25.000Z">
+<meta property="article:modified_time" content="2023-02-12T08:04:22.143Z">
+<meta property="article:author" content="ondestinies">
+<meta property="article:tag" content="Elasticsearch源码分析&amp;实战">
+<meta name="twitter:card" content="summary">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '',
+    scheme: 'Muse',
+    version: '5.1.4',
+    sidebar: {"position":"left","display":"post","offset":12,"b2t":false,"scrollpercent":false,"onmobile":false},
+    fancybox: true,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://example.com/2021/09/01/ES源码分析三：节点在启动时发生了什么？/"/>
+
+
+
+
+
+  <title>ES源码分析三、节点在启动时发生了什么？ | 日暮入桃源</title>
+  
+
+
+
+
+
+
+
+
+<meta name="generator" content="Hexo 6.3.0"></head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta ">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">日暮入桃源</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <p class="site-subtitle">命数如织，当为磐石</p>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/09/01/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%89%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%90%AF%E5%8A%A8%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">ES源码分析三、节点在启动时发生了什么？</h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-09-01T00:25:25+08:00">
+                2021-09-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h2 id="3-1-ES节点启动流程做了什么？"><a href="#3-1-ES节点启动流程做了什么？" class="headerlink" title="3.1 ES节点启动流程做了什么？"></a>3.1 ES节点启动流程做了什么？</h2><ol>
+<li>解析配置：配置文件和命令行参数</li>
+<li>检测外部&#x2F;内部环境：JVM版本，操作系统内核参数等</li>
+<li>初始化内部资源：创建内部模块，初始化探测器</li>
+<li>启动：各个子模块和keepalive线程启动</li>
+</ol>
+<h2 id="3-2-启动流程分析"><a href="#3-2-启动流程分析" class="headerlink" title="3.2 启动流程分析"></a>3.2 启动流程分析</h2><h3 id="3-2-1-启动脚本解析"><a href="#3-2-1-启动脚本解析" class="headerlink" title="3.2.1 启动脚本解析"></a>3.2.1 启动脚本解析</h3><p>通过 bin&#x2F;elasticsearch启动ES时，启动脚本通过exec加载Java程序。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">exec \   #执行命令</span><br><span class="line">	&quot;$JAVA&quot; \  #Java执行路径</span><br><span class="line">	$ES_JAVA_OPTS \ #JVM选项</span><br><span class="line">	-Des.path.home=&quot;$ES_HOME&quot; \ #设置path.home路径</span><br><span class="line">	-Des.path.conf=&quot;$ES_PATH_CONF&quot; \ #设置 java classpath</span><br><span class="line">  -cp &quot;$ES_CLASSPATH&quot; \ #设置java classpath</span><br><span class="line"> 	org.elasticsearch.bootstrap.Elasticsearch \ #指定main函数所在类</span><br><span class="line">	&quot;$@&quot; #传递给main函数的命令行参数</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-2-命令行参数和配置文件解析"><a href="#3-2-2-命令行参数和配置文件解析" class="headerlink" title="3.2.2 命令行参数和配置文件解析"></a>3.2.2 命令行参数和配置文件解析</h3><p>ES_JAVA_OPTS 保存了JVM参数，例如：</p>
+<ul>
+<li>-E 设置某项配置，比如设置集群名称： -E “cluster.name&#x3D;my_cluster”， 一般通过配置文件设置。</li>
+<li>-V 打印版本号信息</li>
+<li>-d 后台启动</li>
+<li>-h 打印帮助信息</li>
+<li>-p 启动时在指定路径创建一个pid文件，其中保存了当前进程的pid，</li>
+<li>-q 关闭控制台的标准输入和标准错误输出</li>
+<li>-s 终端输出最少信息</li>
+<li>-v 终端输出详细信息</li>
+</ul>
+<p>此处解析的配置文件有两个：elasticsearch.yml  主要配置文件；log4j2.properties  日志配置文件</p>
+<p>::jvm.options::是在启动脚本中解析的。</p>
+<h3 id="3-2-3-加载安全配置"><a href="#3-2-3-加载安全配置" class="headerlink" title="3.2.3 加载安全配置"></a>3.2.3 加载安全配置</h3><p>ES一般会将配置文件中的某些配置信息加密存放，放置位置在config&#x2F;elasticsearch.keystore中。<br>比如X-Pack中的security相关配置、LDAP的base_dn等信息。</p>
+<h3 id="3-2-4-检查内部环境"><a href="#3-2-4-检查内部环境" class="headerlink" title="3.2.4 检查内部环境"></a>3.2.4 检查内部环境</h3><ul>
+<li>Lucene版本检查：ES各版本对应Lucene版本是有要求的。</li>
+<li>Jar包冲突检查：JarHell jar地狱<br>以上检查失败直接退出进程</li>
+</ul>
+<h3 id="3-2-5-检测外部环境"><a href="#3-2-5-检测外部环境" class="headerlink" title="3.2.5 检测外部环境"></a>3.2.5 检测外部环境</h3><p>ES中的节点被封装为“node”模块，在node类中调用其他内部组件，同时对外提供启动和关闭方法，对外部环境的检测是在Node.start()中进行的。<br><del>外部环境一般指：运行时JVM、操作系统等相关参数，被称为“Bootstrap Check”。</del><br><del>早期的ES版本中，ES检测到一些不合理的配置会记录到日志中继续运行。但是有时候用户会错过这些日志。为了避免 后期才发现问题，ES在启动阶段对那些很重要的参数做检查，一些影响 性能的配置会被标记为错误。</del></p>
+<ul>
+<li>堆大小检查<br>检测JVM初始堆大小(Xms)与最大堆大小(Xmx)的值应设置为相同值。</li>
+<li>文件描述符检查<br>UNIX架构的系统中，“文件”可以是普通的物理文件，也可以是虚 拟文件，网络套接字也是文件描述符。ES进程需要非常多的文件描述符。例如，每个分片有很多段，每个段都有很多文件。同时包括许多与 其他节点的网络连接等。<br>要通过此项检查，就需要调整系统的默认配置</li>
+<li>内存锁定检查<br>ES允许进程只使用物理内存，避免使用交换分区。</li>
+<li>最大线程数检查<br>确保ES进程有创建 足够多线程的权限。</li>
+<li>最大虚拟内存检查<br>Lucene使用mmap来映射部分索引到进程地址空间，最大虚拟内存检查确保ES进程拥有足够多的地址空间。</li>
+<li>最大文件大小检查<br>段文件和事务日志文件可能特别大，官方建议最大文件大小设置为无限。</li>
+<li>虚拟内存区域最大数量检查<br>ES进程需要创建很多内存映射区，本项检查是要确保内核允许创建 至少262144个内存映射区。<br>sysctl -w vm.max_map_count&#x3D;262144 </li>
+<li>JVM Client模式检查<br>client JVM模式与server JVM模式。<br>client JVM调优了启动时间和内存消耗，server JVM提供了更高的性能。要想通过此检查，需要以server的方式来启动ES</li>
+<li>串行收集检查<br>串行收集器适合比较小的堆或者单CPU的机器，不适合ES，ES启动默认使用CMS垃圾收集器。</li>
+<li>系统调用过滤器检查</li>
+<li>OnError与OnOutOfMemoryError检查</li>
+<li>Early-access检查</li>
+<li>G1GC检查</li>
+</ul>
+<h3 id="3-2-6-启动内部模块"><a href="#3-2-6-启动内部模块" class="headerlink" title="3.2.6 启动内部模块"></a>3.2.6 启动内部模块</h3><p>环境监测完毕后开始启动各个子模块，子模块在Node类中创建，启动他们时调用各自的start()方法。<br>discovery.start();<br>clusterService.start();<br>nodeConnectionsService.start();<br>……<br><del>子模块的start方法基本就是初始化内部数据、创建线程池、启动线程池等操作。</del></p>
+<h3 id="3-2-7-启动keepalive线程"><a href="#3-2-7-启动keepalive线程" class="headerlink" title="3.2.7 启动keepalive线程"></a>3.2.7 启动keepalive线程</h3><p><del>调用keepAliveThread.start()方法启动keepalive线程，线程本身不 做具体的工作。主线程执行完启动流程后会退出，keepalive线程是唯一 的用户线程，作用是保持进程运行。在Java程序中，至少要有一个用户 线程。当用户线程数为零时退出进程。</del></p>
+<h2 id="3-3-节点关闭流程"><a href="#3-3-节点关闭流程" class="headerlink" title="3.3 节点关闭流程"></a>3.3 节点关闭流程</h2>
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Elasticsearch%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90-%E5%AE%9E%E6%88%98/" rel="tag"># Elasticsearch源码分析&实战</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2021/08/23/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%8C%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B/" rel="next" title="ES源码分析二、集群启动流程">
+                <i class="fa fa-chevron-left"></i> ES源码分析二、集群启动流程
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/" rel="prev" title="ES源码分析四、节点在关闭时发生了什么？">
+                ES源码分析四、节点在关闭时发生了什么？ <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <p class="site-description motion-element" itemprop="description"></p>
+          </div>
+
+          <nav class="site-state motion-element">
+
+            
+              <div class="site-state-item site-state-posts">
+              
+                <a href="/archives/%20%7C%7C%20archive">
+              
+                  <span class="site-state-item-count">8</span>
+                  <span class="site-state-item-name">日志</span>
+                </a>
+              </div>
+            
+
+            
+
+            
+              
+              
+              <div class="site-state-item site-state-tags">
+                
+                  <span class="site-state-item-count">3</span>
+                  <span class="site-state-item-name">标签</span>
+                
+              </div>
+            
+
+          </nav>
+
+          
+
+          
+
+          
+          
+
+          
+          
+
+          
+
+        </div>
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#3-1-ES%E8%8A%82%E7%82%B9%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">3.1 ES节点启动流程做了什么？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-2-%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B%E5%88%86%E6%9E%90"><span class="nav-number">2.</span> <span class="nav-text">3.2 启动流程分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-1-%E5%90%AF%E5%8A%A8%E8%84%9A%E6%9C%AC%E8%A7%A3%E6%9E%90"><span class="nav-number">2.1.</span> <span class="nav-text">3.2.1 启动脚本解析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-2-%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%8F%82%E6%95%B0%E5%92%8C%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6%E8%A7%A3%E6%9E%90"><span class="nav-number">2.2.</span> <span class="nav-text">3.2.2 命令行参数和配置文件解析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-3-%E5%8A%A0%E8%BD%BD%E5%AE%89%E5%85%A8%E9%85%8D%E7%BD%AE"><span class="nav-number">2.3.</span> <span class="nav-text">3.2.3 加载安全配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-4-%E6%A3%80%E6%9F%A5%E5%86%85%E9%83%A8%E7%8E%AF%E5%A2%83"><span class="nav-number">2.4.</span> <span class="nav-text">3.2.4 检查内部环境</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-5-%E6%A3%80%E6%B5%8B%E5%A4%96%E9%83%A8%E7%8E%AF%E5%A2%83"><span class="nav-number">2.5.</span> <span class="nav-text">3.2.5 检测外部环境</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-6-%E5%90%AF%E5%8A%A8%E5%86%85%E9%83%A8%E6%A8%A1%E5%9D%97"><span class="nav-number">2.6.</span> <span class="nav-text">3.2.6 启动内部模块</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-7-%E5%90%AF%E5%8A%A8keepalive%E7%BA%BF%E7%A8%8B"><span class="nav-number">2.7.</span> <span class="nav-text">3.2.7 启动keepalive线程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-3-%E8%8A%82%E7%82%B9%E5%85%B3%E9%97%AD%E6%B5%81%E7%A8%8B"><span class="nav-number">3.</span> <span class="nav-text">3.3 节点关闭流程</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2023</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">ondestinies</span>
+
+  
+</div>
+
+
+  <div class="powered-by">由 <a class="theme-link" target="_blank" href="https://hexo.io">Hexo</a> 强力驱动</div>
+
+
+
+  <span class="post-meta-divider">|</span>
+
+
+
+  <div class="theme-info">主题 &mdash; <a class="theme-link" target="_blank" href="https://github.com/iissnan/hexo-theme-next">NexT.Muse</a> v5.1.4</div>
+
+
+
+
+        
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+  
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.4"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.4"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.4"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

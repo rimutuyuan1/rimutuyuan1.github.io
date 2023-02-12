@@ -322,6 +322,10 @@
 <li>发布订阅模型：与点对点模型不同的是，该模型有”主题topic”的概念，发送消息的角色为发布者（Publisher），接受消息的角色为订阅者（Subscriber），该模型中发布者和订阅者均可以为多个。</li>
 </ol>
 <p><strong>Kafka消息引擎支持以上两种消息模型</strong></p>
+<hr>
+<p>消息引擎存在的作用：削峰填谷。</p>
+<p>上下游（由于业务性质的不同所导致的）处理速度不匹配，需要消息引擎来做缓冲，对抗这种上下游系统 TPS 的错配以及瞬时峰值流量。</p>
+<hr>
 
           
         
@@ -492,6 +496,1045 @@
 
 
     
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/" itemprop="url">ES源码分析六、集群写入流程</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-10-06T04:41:11+08:00">
+                2021-10-06
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <p>在ES中，单个写入文档的请求被称为Index请求；批量写入文档的请求被称为Bulk请求。<br>写入单个或者多个文档的请求都被封装为BulkRequest请求。</p>
+<h2 id="几种文档操作的定义"><a href="#几种文档操作的定义" class="headerlink" title="几种文档操作的定义"></a>几种文档操作的定义</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">enum OpType &#123;</span><br><span class="line">INDEX(0)， CREATE(1)， UPDATE(2)， DELETE(3);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>INDEX : 向索引中PUT一个文档的操作被称为“索引“一个文档。<br>CREATE : PUT请求中如果携带参数 op_type:create ，如果主键在索引中已存在，那么索引失败。<br>UPDATE : 默认向索引中PUT一个文档，如果该文档已存在，那么更新它。<br>DELETE :  删除文档</p>
+<h2 id="OP-TYPE可选参数"><a href="#OP-TYPE可选参数" class="headerlink" title="OP_TYPE可选参数"></a>OP_TYPE可选参数</h2><p>写入文档时，可以通过op_type来指定操作类型。</p>
+<ol>
+<li>Version ： 指定文档版本号，主要用于实现乐观锁<br>::乐观锁:::</li>
+<li>version_type : 控制版本号的比较，在文档并发更新时同步数据<br>::默认为internal，参数指定的版本号与文档中版本号相同则写入::<br>::external:当前索引中该文档对应版本号小于请求参数中的版本号则写入::</li>
+<li>op_type :  文档写入时的操作类型<br>::可设置为true，如果索引中主键不存在则写入，若存在则写入失败::</li>
+<li>routing : 指定路由规则<br>::默认按照索引主键路由，指定routing后按照routing路由::</li>
+<li>wait_for_active_shards : 用于控制写一致性，当指定数量的分片副本可用时执行写入，否则写入失败，默认为1，主分片可用时即可写入。</li>
+<li>refresh : 写入完毕后立即执行refresh操作，使搜索可见。</li>
+<li>timeout : 请求超时时间，默认1min。</li>
+<li>Pipeline :  指定事先创建好的pipeline名称。</li>
+</ol>
+<h2 id="1-1-Index-x2F-Bulk基本流程"><a href="#1-1-Index-x2F-Bulk基本流程" class="headerlink" title="1.1 Index&#x2F;Bulk基本流程"></a>1.1 Index&#x2F;Bulk基本流程</h2><p>新建、索引、删除都是写操作，必须在主分片执行成功后才复制到副本分片。</p>
+<h3 id="1-1-1-单个文档写入步骤"><a href="#1-1-1-单个文档写入步骤" class="headerlink" title="1.1.1 单个文档写入步骤"></a>1.1.1 单个文档写入步骤</h3><ol>
+<li>客户端向Node1发送写入请求，此时Node1被称为协调节点。</li>
+<li>Node1拿到文档的主键后经过路由规则（默认取模？）确定文档属于分片0，通过集群状态中<br>的内容路由表信息获知分片0的主分片位于NODE3，因此请求被转发到 NODE3上。</li>
+<li>NODE3上的主分片执行写操作。如果写入成功，则它将请求 并行转发到 NODE1和NODE2的副分片上，等待返回结果。当所有的副 分片都报告成功，NODE3将向协调节点报告成功，协调节点再向客户端报告成功。</li>
+</ol>
+<p>在客户端收到写入成功的消息回应后，主分片和副本分片都已经写入成功。</p>
+<blockquote>
+<p>写一致性的默认策略是quorum，即多数的分片(其中分片副本可以是主分片或副分片)在写入操作时处于可用状态。<br>quorum &#x3D; int( (primary + number_of_replicas) &#x2F; 2 ) + 1</p>
+</blockquote>
+<h3 id="1-1-2-文档写入详细流程"><a href="#1-1-2-文档写入详细流程" class="headerlink" title="1.1.2 文档写入详细流程"></a>1.1.2 文档写入详细流程</h3><p><img src="/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/5EEFB82B-7A1D-4C5D-9CB9-64F6A4BED484.png"></p>
+<h4 id="1-1-2-1-协调节点写入流程"><a href="#1-1-2-1-协调节点写入流程" class="headerlink" title="1.1.2.1  协调节点写入流程"></a>1.1.2.1  协调节点写入流程</h4><p>协调节点负责创建索引、转发请求到主分片节点、等待响应、回复客户端。<br><del>实现位于TransportBulkAction。执行本流程的线程池: http_server_worker。</del></p>
+<ul>
+<li>参数检查：对index&#x2F;type&#x2F;source&#x2F;contextType&#x2F;opType&#x2F;version&#x2F;id 等进行检查，如果检查失败直接返回错误。</li>
+<li>pipeline请求处理：请求预处理，如果Index或Bulk请求中指定了pipeline参数，则先使用相应的 pipeline进行处理。如果本节点不具备预处理资格，则将请求随机转发 到其他具备预处理资格的节点。</li>
+<li>自动创建索引：如果配置为自动创建索引，并且当前请求写入的索引不存在，则创建索引，如果索引创建失败，则该请求失败。索引创建成功后将新的集群状态发布完毕（Master发布clusterState的Request收到半数以上的节点Response，认为发布成功）再返回成功。</li>
+<li>对请求的预先处理：不同于请求预处理，对请求的预先处理只是检查参数、自动生成id、处理routing等。<br><del>由于上一步可能有创建索引操作，所以在此先获取最新集群状态信 息。然后遍历所有请求，从集群状态中获取对应索引的元信息，检查 mapping、routing、id等信息。如果id不存在，则生成一个UUID作为文 档id。</del></li>
+<li>检测集群状态：协调节点在开始处理时会先检测集群状态，若集群异常则取消写入。<br><del>Master节点不存在，会阻塞等待Master节点直至超时</del><br><del>索引为Red时，如果Master节点存在，则数据可以写到正常 shard,Master节点不存在，协调节点会阻塞等待或取消写入。</del></li>
+<li>内容路由：构建基于shard的请求（本质是拆分&amp;合并请求的过程）。如果索引10个文档的Bulk请求中有5个文档被路由到分片A，另外5个文档被路由到分片B，那么ES会将前5个文档的请求合并到一起，另外5个文档的请求合并到一起，分别请求不同的分片写入。</li>
+<li>路由算法：根据routing和文档id计算目标shardid的过程。<blockquote>
+<p>计算公式：shard_num &#x3D; hash(_routing) % num_primary_shards   _routing值一般为文档主键<br><del>ES使用随机id和Hash算法来确保文档均匀地分配给分片。当使用自定义id或routing时， id 或 routing 值可能不够随机，造成数据倾斜，部分分片过大。</del></p>
+</blockquote>
+</li>
+<li>转发请求并等待响应：根据集群状态中的内容路由表确定主分片所在节点，转发请求并等待响应。<br><del>遍历所有需要写的 shard，将位于某个 shard 的请求封装为BulkShardRequest 类，调用TransportShardBulkAction#execute执行发送， 在listener中等待响应，每个响应也是以shard为单位的。如果某个shard 的响应中部分doc写失败了，则将异常信息填充到Response中，整体请 求做成功处理。</del></li>
+</ul>
+<h4 id="1-1-2-2-主分片写入流程"><a href="#1-1-2-2-主分片写入流程" class="headerlink" title="1.1.2.2 主分片写入流程"></a>1.1.2.2 主分片写入流程</h4><p>执行本流程的线程池:bulk<br><del>主分片所在节点负责在本地写主分片，写成功后，转发写副本片请求，等待响应，回复协调节点。</del></p>
+<ul>
+<li>检查请求：主要检测当前请求是否是写的主分片；写入的索引是否处于关闭状态等</li>
+<li>是否延迟执行：如果为延迟执行，则放在delay队列中</li>
+<li>判断主分片是否发生迁移：如迁移，则将请求转发到迁移后的节点</li>
+<li>检测写一致性：写入之前需要判断写入的分片活跃数是否足够，不足则取消写入，默认为1，主分片可用即可写入。</li>
+<li>写Lucene和事务日志：遍历请求，处理动态字段映射，通过InternalEngine#index进行逐条写入，索引过程中先写Lucene，再写translog，保证如果Lucene写入失败后避免translog回滚问题。<br><del>写入Lucene之前，先生成Sequence Number和Version。这些都是 在InternalEngine类中实现的。Sequence Number每次递增1,Version根据 当前doc的最大版本加1。</del></li>
+<li>flush translog：根据配置的translog flush策略进行刷盘控制，定时或立即刷盘</li>
+<li>写副本分片：遍历主分片的副本，依次异步写入<br><del>在等待Response的过程中，本节点发出了多少个Request，就要等待 多少个Response。无论这些Response是成功的还是失败的，直到超时。收集到全部的Response后，执行finish()。给协调节点返回消息， 告知其哪些成功、哪些失败了。</del></li>
+<li>处理副本分片写失败情况：主分片所在节点将发送一个shardFailed请求给Master，然后Master会更新集群状态，在新的集群状态中，这个shard将从in_sync_allocations列表中删除；在routing_table的shard列表中将state由STARTED更改为UNASSIGNED；添加到routingNodes的unassignedShards列表。</li>
+</ul>
+<h4 id="1-1-2-3-副本分片写入流程"><a href="#1-1-2-3-副本分片写入流程" class="headerlink" title="1.1.2.3 副本分片写入流程"></a>1.1.2.3 副本分片写入流程</h4><p>执行本流程的线程池:bulk<br>执行流程与主分片基本相同，</p>
+<h2 id="1-2-IO异常处理"><a href="#1-2-IO异常处理" class="headerlink" title="1.2 IO异常处理"></a>1.2 IO异常处理</h2><p>在一个shard上执行的一些操作可能会产生I&#x2F;O异常之类的情况。<br>一 个shard上的CRUD等操作在ES里由一个Engine对象封装，在Engine处理过程中，部分操作产生的部分异常ES会认为有必要关闭此Engine，上报 Master。</p>
+<p>对Engine异常的捕获目前主要通过IOException实现。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">try &#123;</span><br><span class="line">		indexIntoLucene(index, plan); //索引文档到Lucene</span><br><span class="line">&#125; catch (RuntimeException | IoException e) &#123;</span><br><span class="line">     try &#123;</span><br><span class="line">		maybeFailEngine();</span><br><span class="line">	&#125; catch (Exception e) &#123;</span><br><span class="line">		e.printStackPrice();</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Engine类中的maybeFailEngine()负责检查是否应当关闭引擎 failEngine()。</p>
+<p>可能会触发maybeFailEngine的操作有：</p>
+<ul>
+<li>CreateSearcherManager  IOException  创建搜索管理器</li>
+<li>index    IOException、RuntimeException  索引文档</li>
+<li>delete    IOException、RuntimeException  删除文档</li>
+<li>sync flush    IOException   同步刷新</li>
+<li>sync commit    IOException  同步提交</li>
+<li>flush    FlushFailedEngineException  刷盘</li>
+<li>force merge     Exception 手动合并Lucene分段</li>
+</ul>
+<h2 id="1-3-系统特性"><a href="#1-3-系统特性" class="headerlink" title="1.3 系统特性"></a>1.3 系统特性</h2><ul>
+<li>数据可靠性：通过分片副本和事务日志机制保障数据安全。</li>
+<li>服务可用性：在可用性和一致性的取舍方面，默认情况下 ES 更 倾向于可用性，只要主分片可用即可执行写入操作。</li>
+<li>一致性：弱一致性。只要主分片写成功，数据就可能 被读取。因此读取操作在主分片和副分片上可能会得到不同结果。</li>
+<li>原子性：索引的读写、别名更新是原子操作，不会出现中间状 态。但bulk不是原子操作，不能用来实现事务。</li>
+<li>扩展性：主副分片都可以承担读请求，分担系统负载。</li>
+</ul>
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/" itemprop="url">ES源码分析五、集群是如何确定主节点的？</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-10-02T15:21:28+08:00">
+                2021-10-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <p><del>Discovery模块负责发现集群中的节点，以及选择主节点。</del><br><del>ES内置实现为 Zen Discovery。</del></p>
+<h2 id="5-1-为什么使用主从模式？"><a href="#5-1-为什么使用主从模式？" class="headerlink" title="5.1 为什么使用主从模式？"></a>5.1 为什么使用主从模式？</h2><p>除主从模式以外，另一种选择是分布式哈希表DHT，可以支持每小时数千节点的离开和加入。<br>但是ES典型场景为：当前集群没有那么多节点离开和加入，并且节点数量远小于单个节点能维护的连接数。<br>所以说ES更适合使用主从模式。</p>
+<h2 id="5-2-选举算法"><a href="#5-2-选举算法" class="headerlink" title="5.2 选举算法"></a>5.2 选举算法</h2><ul>
+<li>Bully：Leader选举的基本算法之一。<br>它假定所有节点都有一个唯一的ID， 使用该ID对节点进行排序，即任何时候当前Leader都是参与集群选举的最高ID节点。<br>但是通过上述选举算法会有脑裂问题，可以通过”法定得票人数过半“解决。</li>
+<li>Paxos：选举灵活性比Bully算法更高，但是实现复杂。</li>
+</ul>
+<h2 id="5-3-相关配置"><a href="#5-3-相关配置" class="headerlink" title="5.3 相关配置"></a>5.3 相关配置</h2><ul>
+<li>discovery.zen.minimum_master_nodes 最小节点数，法定得票人数过半通过该配置决定。<br>  该配置可以解决脑裂问题，除此之外，改配置还有其他实际作用。<ol>
+<li>触发选主：进入选主的流程之前，参选的节点数需要达到法定人 数。</li>
+<li>决定Master ：选出临时的Master之后，这个临时Master需要判断加入它的节点达到法定人数，才确认选主成功。</li>
+<li>gateway选举元信息： 向有Master资格的节点发起请求获取元数据，获取的响应数量必须达到法定人数，也就是参与元信息选举的节点数。</li>
+<li>Master发布集群状态： 发布成功数量为多数。</li>
+</ol>
+</li>
+<li>discovery.zen.ping.unicast.hosts 集群种子节点列表  构建集群时 本节点会尝试连接这个节点列表，那么列表中的主机会看到整个集群中 都有哪些主机。可以配置为部分或全部集群节点。</li>
+<li>discovery.zen.join_timeout 节点加入现有集群时的超时时间，默认 为 ping_timeout的20倍。</li>
+<li>discovery.zen.join_retry_attempts join_timeout 超时之后的重试次 数，默认为3次。</li>
+<li>discovery.zen.master_election.ignore_non_master_pings  设置为true时，选主阶段将忽略来自不具备Master资格节点(node.master: false)的ping请求，默认为false。</li>
+</ul>
+<h2 id="5-4-流程分析"><a href="#5-4-流程分析" class="headerlink" title="5.4 流程分析"></a>5.4 流程分析</h2><p>ZenDiscovery的选主过程：</p>
+<ol>
+<li>每个节点计算最小的已知节点ID，该节点为临时Master，并向该节点发送领导投票。</li>
+<li>如果一个节点收到足够多的票数，并且该节点也为自己投票，那么确定Master角色，开始发布集群状态。</li>
+</ol>
+<p><del>所有节点都会参与选举，并参与投票，但是只有node.master&#x3D;true的节点投票才有效。</del><br><del>获取多少选票才可以赢得选举，就是法定人数，通过discovery.zen.minimum_master_nodes来决定</del><br><del>discovery.zen.minimum_master_nodes为了避免脑裂，该配置最小值应为有Master资格节点数n&#x2F;2+1</del></p>
+<h3 id="5-4-1-具体分析"><a href="#5-4-1-具体分析" class="headerlink" title="5.4.1 具体分析"></a>5.4.1 具体分析</h3><ol>
+<li>选举临时Master<ul>
+<li>如果本节点当选，则等待确立Master</li>
+<li>如果其他节点当选，则尝试加入集群，然后启动节点失效探测器。</li>
+</ul>
+</li>
+</ol>
+<p>选举过程的实现位于 ::ZenDiscovery#findMaster::。该函数查找当前集群的活跃 Master，或者从候选者中选择新的Master。如果选主成功，则返回选定的Master，否则返回空。<br>    * ping所有的节点，获取节点列表fullPingResponses，ping结果不包含本节点，把本节点单独添加到fullPingResponses中。 [第一步]<br>    * 构建两个列表activeMasters和masterCandidates  [第二步]<br>    * 如果activeMasters列表为空，则从masterCandidates列表中选举，可能选举失败，也可能成功。如果不为空，则从activeMasters列表中选择最合适的作为Master。（masterCandidates不是从activeMasters中拿的么？）[第三步]</p>
+<blockquote>
+<p>activeMasters：储存集群当前活跃的Master列表，遍历[第一步]获取的所有节点，将每个节点所认为的当前Master节点加入activeMasters列表中(不包括本节点)。<br>这个过程是将集群当前已存在的Master加入activeMasters列表，正常情况下只有一个。<br>masterCandidates： 存储master候选者列表，遍历第一步获取的列表，去掉不具备Master资格的节点，添加到这个列表中。  </p>
+</blockquote>
+<ul>
+<li><p>从masterCandidates中选择主节点<br>  具体细节实现封装在::ElectMasterService::类中，例如，判断 候选者是否足够，选择具体的节点作为Master等。</p>
+<ol>
+<li>首先要判断是否达到法定人数，否则选举失败。</li>
+<li>达到法定人数后，通过自定义函数比较器选择一个合适的节点。<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">//自定义函数比较</span><br><span class="line">public static int compare(MasterCandidate c1, MasterCandidate c2) &#123;</span><br><span class="line">		//先比较集群状态版本</span><br><span class="line">		int ret = Long.compare(c2.clusterStateVersion, c1.clusterStateVersiion);</span><br><span class="line">		//如果版本号相同，则比较节点ID</span><br><span class="line">		if (ret == 0) &#123;</span><br><span class="line">			ret = compareNode(c1.getNode(), c2.getNode());</span><br><span class="line">		&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">public static int compareNode(DiscoveryNode o1, DiscoveryNode o2) &#123;</span><br><span class="line">		//判断两个节点中一个具备Master资格而另一个不具备Master资格的情况</span><br><span class="line">		if (o1.isMasterNode() &amp;&amp; !o2.isMasterNode()) &#123;</span><br><span class="line">			return -1;</span><br><span class="line">		&#125;</span><br><span class="line">		if (!o1.isMasterNode() &amp;&amp; o2.isMasterNode()) &#123;</span><br><span class="line">			return -1;</span><br><span class="line">		&#125;</span><br><span class="line">		//通过节点ID排序</span><br><span class="line">		return o1.getId().compareTo(o2.getId());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></li>
+</ol>
+</li>
+<li><p>从activeMasters列表中选择<br>列表存储着集群当前存在活跃的Master，从这些已知的Master节点中选择一个作为选举结果。<br>当前列表中的节点理论上都是具备Master资格的。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">public DiscoveryNode tieBreakActiveMasters(Collection&lt;DiscoveryNode&gt; activeMasters) &#123;</span><br><span class="line">		return activeMasters.stream().min(EkectMasterService::compareNodes).get();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></li>
+</ul>
+<h3 id="5-4-2-投票与得票的实现"><a href="#5-4-2-投票与得票的实现" class="headerlink" title="5.4.2 投票与得票的实现"></a>5.4.2 投票与得票的实现</h3><p>在ES中，发送投票就是发送加入集群(JoinRequest)请求。得票就 是申请加入该节点的请求的数量。<br>收集投票，进行统计的实现在ZenDiscovery#handleJoinRequest方法 中，收到的连接被存储到ElectionContext.joinRequestAccumulator中。当 节点检查收到的投票是否足够时，就是检查加入它的连接数是否足够， 其中会去掉没有Master资格节点的投票。</p>
+<h3 id="5-4-3-临时Master节点确认后如何确定正式Master节点的？"><a href="#5-4-3-临时Master节点确认后如何确定正式Master节点的？" class="headerlink" title="5.4.3 临时Master节点确认后如何确定正式Master节点的？"></a>5.4.3 临时Master节点确认后如何确定正式Master节点的？</h3><p>选举出的临时Master有两种情况：</p>
+<ul>
+<li>该临时节点是本节点<ol>
+<li>等待足够多的具备Master资格的节点加入本节点（法定投票人数），完成选举。</li>
+<li>超时（默认30s）后还没有达到法定人数，需要重新选举。</li>
+<li>成功后发布新的clusterState。</li>
+</ol>
+</li>
+<li>该临时节点不是本节点<ol>
+<li>不再接受其他节点的join请求。</li>
+<li>向临时Master节点发送加入请求并等待回复。</li>
+<li>最终当选的master先发布集群状态，再确认join请求。</li>
+</ol>
+</li>
+</ul>
+<h2 id="5-5-节点失效检测"><a href="#5-5-节点失效检测" class="headerlink" title="5.5 节点失效检测"></a>5.5 节点失效检测</h2><p>选主流程结束后确认Master身份，集群开始运行后会持续检测节点失效状态（是否离线）。</p>
+<ul>
+<li>NodesFD<br>在Master节点，启动NodesFaultDetection，定期探 测加入集群的节点是否活跃。</li>
+<li>MasterFD<br>在非Master节点启动MasterFaultDetection，定期探 测Master节点是否活跃。</li>
+</ul>
+<blockquote>
+<p>NodesFaultDetection和MasterFaultDetection都是通过定期(默认为1 秒)发送的ping请求探测节点是否正常的，当失败达到一定次数(默认 为3次)，或者收到来自底层连接模块的节点离线通知时，开始处理节 点离开事件。  </p>
+</blockquote>
+<h3 id="5-5-1-NodesFaultDetection处理流程"><a href="#5-5-1-NodesFaultDetection处理流程" class="headerlink" title="5.5.1  NodesFaultDetection处理流程"></a>5.5.1  NodesFaultDetection处理流程</h3><p>检查一下当前集群总节点数是否达到法定节点数(过半)，如果不 足，则会放弃 Master 身份，重新加入集群。</p>
+<p>检测原因：避免脑裂<br>对应事件处理主要实现如下:在 ZenDiscovery#handleNodeFailure 中执行NodeRemovalClusterStateTaskExecutor.execute。<br>主节点在探测到节点离线的事件处理中，如果发现当前集群节点数 量不足法定人数，则放弃Master身份，从而避免产生双主。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">@Override</span><br><span class="line">public ClusterTasksResult&lt;Task&gt; execute(final ClusterState currentState, final List&lt;Task&gt; tasks) throws Exception &#123;</span><br><span class="line">    if (electMasterService.hasEnoughMasterNodes(remainingNodesClusterState.nodes()) == false) &#123;</span><br><span class="line">        final int masterNodes = electMasterService.countMasterNodes(remainingNodesClusterState.nodes());</span><br><span class="line">        rejoin.accept(LoggerMessageFormat.format(&quot;not enough master nodes (has [&#123;&#125;], but needed [&#123;&#125;])&quot;, masterNodes, electMasterService.minimumMasterNodes()));</span><br><span class="line">        return resultBuilder.build(currentState);</span><br><span class="line">    &#125; else &#123;</span><br><span class="line">        return resultBuilder.build(allocationService.deassociateDeadNodes(remainingNodesClusterState, true, describeTasks(tasks)));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-5-2-MasterFaultDetection处理流程"><a href="#5-5-2-MasterFaultDetection处理流程" class="headerlink" title="5.5.2  MasterFaultDetection处理流程"></a>5.5.2  MasterFaultDetection处理流程</h3><p>探测Master离线的处理很简单，重新加入集群。 本质上是重新执行一遍选主流程。<br>对应事件处理主要实现如下:ZenDiscovery#handleMasterGone</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">private void handleMasterGone(final DiscoveryNode masterNode, final Throwable cause, final String reason) &#123;</span><br><span class="line">    synchronized (stateMutex) &#123;</span><br><span class="line">        if (!localNodeMaster() &amp;&amp; masterNode.equals(committedState.get().nodes().getMasterNode())) &#123;</span><br><span class="line">            // flush any pending cluster states from old master, so it will not be set as master again</span><br><span class="line">            pendingStatesQueue.failAllStatesAndClear(new ElasticsearchException(&quot;master left [&#123;&#125;]&quot;, reason));</span><br><span class="line">            rejoin(&quot;master left (reason = &quot; + reason + &quot;)&quot;);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/" itemprop="url">ES源码分析四、节点在关闭时发生了什么？</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-09-09T08:55:14+08:00">
+                2021-09-09
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <p>当ES集群更新配置、升级版本时，需要通过“kill”ES进程来关闭节点。<br>::ES进程会捕获SIGTERM信号(kill命令默认信号)进行处理，调用各模块的stop方法停止服务并安全退出。::</p>
+<ul>
+<li>如果主节点被关闭，集群会重新选主，在这个期间集群会进入短暂的无主状态。</li>
+<li>如果数据节点被关闭，则读写请求的TCP连接也会关闭，对客户端来说写操作执行失败，但写流程已经达到Engine流程的会正常写入，只是客户端无法感知结果。此时客户端重试，如果使用自动生成 ID，则数据内容会重复。</li>
+</ul>
+<p><del>综合来说，滚动升级产生的影响是中断当前读写请求，以及主节点重启可能引起的分片分配过程。</del></p>
+<h2 id="4-1-关闭流程分析"><a href="#4-1-关闭流程分析" class="headerlink" title="4.1 关闭流程分析"></a>4.1 关闭流程分析</h2><p>每个模块的Service中都实现了doStop和doClose方法，用于处理这个模块的正常关闭。<br>节点总的关闭流程位于Node#close，在close方法的实 现中，先调用一遍各个模块的doStop，然后再次遍历各个模块执行 doClose。</p>
+<p>各模块的关闭有一定的顺序，stop方法执行顺序如下：</p>
+<ol>
+<li>ResourceWatcherService 通用资源监视</li>
+<li>HttpServerTransport HTTP传输服务（Rest接口服务）</li>
+<li>SnapshotsService 快照服务</li>
+<li>SnapshotShardsService  shard快照服务（负责启动和通知shard级快照）</li>
+<li>IndicesClusterStateService 收集状态信息后处理其中索引相关操作</li>
+<li>Discovery 集群拓扑管理</li>
+<li>RoutingService 处理reroute（节点之间迁移shard）</li>
+<li>ClusterService 集群管理服务（处理集群任务、发布集群状态）</li>
+<li>NodeConnectionsService 节点连接管理服务</li>
+<li>MonitorService 提供进程级、系统级、文件系统和JVM的监控服务</li>
+<li>GatewayService 负责集群元数据持久化与恢复</li>
+<li>SearchService 处理搜索请求</li>
+<li>TransportService 底层传输服务</li>
+<li>plugins  当前的所有插件</li>
+<li>IndicesService 负责创建、删除索引等操作</li>
+</ol>
+<p>综合来看，关闭顺序大致如下:</p>
+<ul>
+<li>关闭快照和HTTPServer，不再响应用户REST请求。</li>
+<li>关闭集群拓扑管理，不再响应ping请求。</li>
+<li>关闭网络模块，让节点离线。</li>
+<li>执行各个插件的关闭流程。</li>
+<li>关闭IndicesService。<br>最后关闭IndicesService，是因为这期间需要等待释放的资源最多，时间最长。</li>
+</ul>
+<h2 id="4-2-分片读写过程中执行关闭"><a href="#4-2-分片读写过程中执行关闭" class="headerlink" title="4.2 分片读写过程中执行关闭"></a>4.2 分片读写过程中执行关闭</h2><h3 id="4-2-1-写入过程中关闭"><a href="#4-2-1-写入过程中关闭" class="headerlink" title="4.2.1 写入过程中关闭"></a>4.2.1 写入过程中关闭</h3><p>线程在写入数据时，会对Engine加写锁。<br> IndicesService的doStop方法对本节点上全部索引并行执行removeIndex， 当执行到Engine的flushAndClose(先flush然后关闭Engine)，也会对Engine加写锁。由于写入操作已经加了写锁，此时写锁会等待，直到写入执行完毕。因此数据写入过程不会被中断。但是由于网络模块被关闭，客户端的连接会被断开。客户端应当作为失败处理，虽然ES服务端 的写流程还在继续。</p>
+<h3 id="4-2-2-读取过程中关闭"><a href="#4-2-2-读取过程中关闭" class="headerlink" title="4.2.2 读取过程中关闭"></a>4.2.2 读取过程中关闭</h3><p>线程在读取数据时，会对Engine加读锁。 flushAndClose时的写锁会等待读取过程执行完毕。<br>但是由于连接被关 闭，无法发送给客户端，导致客户端读失败。</p>
+<p>节点关闭过程中，IndicesService的doStop对Engine设置了超时，如果flushAndClose一直等待，则CountDownLatch.await默认1天才会继续后面的流程。</p>
+<h2 id="4-3-主节点被关闭"><a href="#4-3-主节点被关闭" class="headerlink" title="4.3 主节点被关闭"></a>4.3 主节点被关闭</h2><p>节点正常执行关闭流程，当TransportService模块被关闭后，集群重新选举新Master。</p>
+<h2 id="4-4-总结"><a href="#4-4-总结" class="headerlink" title="4.4 总结"></a>4.4 总结</h2><ol>
+<li>节点启动流程做初始化和检查工作，各个子模块启动后异步开始工作如: 加载本地数据、选主、加入集群等。</li>
+<li>节点在关闭时也有机会处理已经收到的请求，但是写完后或许无法返回客户端，线程池中未执行完的任务在超时时间之内也会继续执行。</li>
+<li>::集群健康从Red到Green的时间主要是消耗在维护主副分片的一致性上::。</li>
+</ol>
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/09/01/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%89%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%90%AF%E5%8A%A8%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/09/01/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%89%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%90%AF%E5%8A%A8%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/" itemprop="url">ES源码分析三、节点在启动时发生了什么？</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-09-01T00:25:25+08:00">
+                2021-09-01
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h2 id="3-1-ES节点启动流程做了什么？"><a href="#3-1-ES节点启动流程做了什么？" class="headerlink" title="3.1 ES节点启动流程做了什么？"></a>3.1 ES节点启动流程做了什么？</h2><ol>
+<li>解析配置：配置文件和命令行参数</li>
+<li>检测外部&#x2F;内部环境：JVM版本，操作系统内核参数等</li>
+<li>初始化内部资源：创建内部模块，初始化探测器</li>
+<li>启动：各个子模块和keepalive线程启动</li>
+</ol>
+<h2 id="3-2-启动流程分析"><a href="#3-2-启动流程分析" class="headerlink" title="3.2 启动流程分析"></a>3.2 启动流程分析</h2><h3 id="3-2-1-启动脚本解析"><a href="#3-2-1-启动脚本解析" class="headerlink" title="3.2.1 启动脚本解析"></a>3.2.1 启动脚本解析</h3><p>通过 bin&#x2F;elasticsearch启动ES时，启动脚本通过exec加载Java程序。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">exec \   #执行命令</span><br><span class="line">	&quot;$JAVA&quot; \  #Java执行路径</span><br><span class="line">	$ES_JAVA_OPTS \ #JVM选项</span><br><span class="line">	-Des.path.home=&quot;$ES_HOME&quot; \ #设置path.home路径</span><br><span class="line">	-Des.path.conf=&quot;$ES_PATH_CONF&quot; \ #设置 java classpath</span><br><span class="line">  -cp &quot;$ES_CLASSPATH&quot; \ #设置java classpath</span><br><span class="line"> 	org.elasticsearch.bootstrap.Elasticsearch \ #指定main函数所在类</span><br><span class="line">	&quot;$@&quot; #传递给main函数的命令行参数</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-2-命令行参数和配置文件解析"><a href="#3-2-2-命令行参数和配置文件解析" class="headerlink" title="3.2.2 命令行参数和配置文件解析"></a>3.2.2 命令行参数和配置文件解析</h3><p>ES_JAVA_OPTS 保存了JVM参数，例如：</p>
+<ul>
+<li>-E 设置某项配置，比如设置集群名称： -E “cluster.name&#x3D;my_cluster”， 一般通过配置文件设置。</li>
+<li>-V 打印版本号信息</li>
+<li>-d 后台启动</li>
+<li>-h 打印帮助信息</li>
+<li>-p 启动时在指定路径创建一个pid文件，其中保存了当前进程的pid，</li>
+<li>-q 关闭控制台的标准输入和标准错误输出</li>
+<li>-s 终端输出最少信息</li>
+<li>-v 终端输出详细信息</li>
+</ul>
+<p>此处解析的配置文件有两个：elasticsearch.yml  主要配置文件；log4j2.properties  日志配置文件</p>
+<p>::jvm.options::是在启动脚本中解析的。</p>
+<h3 id="3-2-3-加载安全配置"><a href="#3-2-3-加载安全配置" class="headerlink" title="3.2.3 加载安全配置"></a>3.2.3 加载安全配置</h3><p>ES一般会将配置文件中的某些配置信息加密存放，放置位置在config&#x2F;elasticsearch.keystore中。<br>比如X-Pack中的security相关配置、LDAP的base_dn等信息。</p>
+<h3 id="3-2-4-检查内部环境"><a href="#3-2-4-检查内部环境" class="headerlink" title="3.2.4 检查内部环境"></a>3.2.4 检查内部环境</h3><ul>
+<li>Lucene版本检查：ES各版本对应Lucene版本是有要求的。</li>
+<li>Jar包冲突检查：JarHell jar地狱<br>以上检查失败直接退出进程</li>
+</ul>
+<h3 id="3-2-5-检测外部环境"><a href="#3-2-5-检测外部环境" class="headerlink" title="3.2.5 检测外部环境"></a>3.2.5 检测外部环境</h3><p>ES中的节点被封装为“node”模块，在node类中调用其他内部组件，同时对外提供启动和关闭方法，对外部环境的检测是在Node.start()中进行的。<br><del>外部环境一般指：运行时JVM、操作系统等相关参数，被称为“Bootstrap Check”。</del><br><del>早期的ES版本中，ES检测到一些不合理的配置会记录到日志中继续运行。但是有时候用户会错过这些日志。为了避免 后期才发现问题，ES在启动阶段对那些很重要的参数做检查，一些影响 性能的配置会被标记为错误。</del></p>
+<ul>
+<li>堆大小检查<br>检测JVM初始堆大小(Xms)与最大堆大小(Xmx)的值应设置为相同值。</li>
+<li>文件描述符检查<br>UNIX架构的系统中，“文件”可以是普通的物理文件，也可以是虚 拟文件，网络套接字也是文件描述符。ES进程需要非常多的文件描述符。例如，每个分片有很多段，每个段都有很多文件。同时包括许多与 其他节点的网络连接等。<br>要通过此项检查，就需要调整系统的默认配置</li>
+<li>内存锁定检查<br>ES允许进程只使用物理内存，避免使用交换分区。</li>
+<li>最大线程数检查<br>确保ES进程有创建 足够多线程的权限。</li>
+<li>最大虚拟内存检查<br>Lucene使用mmap来映射部分索引到进程地址空间，最大虚拟内存检查确保ES进程拥有足够多的地址空间。</li>
+<li>最大文件大小检查<br>段文件和事务日志文件可能特别大，官方建议最大文件大小设置为无限。</li>
+<li>虚拟内存区域最大数量检查<br>ES进程需要创建很多内存映射区，本项检查是要确保内核允许创建 至少262144个内存映射区。<br>sysctl -w vm.max_map_count&#x3D;262144 </li>
+<li>JVM Client模式检查<br>client JVM模式与server JVM模式。<br>client JVM调优了启动时间和内存消耗，server JVM提供了更高的性能。要想通过此检查，需要以server的方式来启动ES</li>
+<li>串行收集检查<br>串行收集器适合比较小的堆或者单CPU的机器，不适合ES，ES启动默认使用CMS垃圾收集器。</li>
+<li>系统调用过滤器检查</li>
+<li>OnError与OnOutOfMemoryError检查</li>
+<li>Early-access检查</li>
+<li>G1GC检查</li>
+</ul>
+<h3 id="3-2-6-启动内部模块"><a href="#3-2-6-启动内部模块" class="headerlink" title="3.2.6 启动内部模块"></a>3.2.6 启动内部模块</h3><p>环境监测完毕后开始启动各个子模块，子模块在Node类中创建，启动他们时调用各自的start()方法。<br>discovery.start();<br>clusterService.start();<br>nodeConnectionsService.start();<br>……<br><del>子模块的start方法基本就是初始化内部数据、创建线程池、启动线程池等操作。</del></p>
+<h3 id="3-2-7-启动keepalive线程"><a href="#3-2-7-启动keepalive线程" class="headerlink" title="3.2.7 启动keepalive线程"></a>3.2.7 启动keepalive线程</h3><p><del>调用keepAliveThread.start()方法启动keepalive线程，线程本身不 做具体的工作。主线程执行完启动流程后会退出，keepalive线程是唯一 的用户线程，作用是保持进程运行。在Java程序中，至少要有一个用户 线程。当用户线程数为零时退出进程。</del></p>
+<h2 id="3-3-节点关闭流程"><a href="#3-3-节点关闭流程" class="headerlink" title="3.3 节点关闭流程"></a>3.3 节点关闭流程</h2>
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/08/23/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%8C%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/08/23/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%8C%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B/" itemprop="url">ES源码分析二、集群启动流程</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-08-23T19:36:18+08:00">
+                2021-08-23
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <p>集群启动过程指集群完全重启时的启动过程，期间经历选举主节点、主分片、数据恢复等。</p>
+<h2 id="2-1-选举主节点"><a href="#2-1-选举主节点" class="headerlink" title="2.1 选举主节点"></a>2.1 选举主节点</h2><p>集群启动时，需要从已知活跃的机器列表中选择一个作为主节点，选主之后的流程由主节点触发。<br>参选人数过半时选出临时Master、得票过半确定Master、当节点离开时检测集群节点数等。<br>选取的时间点为：当集群启动的备选master节点过半时开始选举，例如ES集群有7个ES实例组成，5个ES实例设置了node.master&#x3D;true（选主备选），所以当这个5个实例超过::discovery.zen.minimum_master_nodes::个节点启动就可以开始选举主节点，当节点得到投票超过半数时，当前节点被选为主节点。</p>
+<h2 id="2-2-元数据恢复"><a href="#2-2-元数据恢复" class="headerlink" title="2.2 元数据恢复"></a>2.2 元数据恢复</h2><p>主节点确定后，会向所有的节点获取元数据信息，当收到发回元数据信息的候选节点超过半数后，对比当前拿到的元数据信息集合，选择版本号最大的元数据信息作为最新的元数据，并广播到所有的节点。</p>
+<ul>
+<li>gateway.excepted_nodes : 预期节点数，当加入集群的节点数大于该值时即可开始恢复元数据。</li>
+<li>gateway.recovery_after_time : 在达到预期节点数之前等待的最长时间，如果在该时间段内，集群还未达到预期节点数，则元数据也开始恢复。默认值为5min</li>
+<li>gateway.recovery_after_nodes : 只要加入集群的节点数量达到当前配置数量则开始恢复元数据。</li>
+</ul>
+<h5 id="元数据信息"><a href="#元数据信息" class="headerlink" title="元数据信息"></a>元数据信息</h5><ul>
+<li>MetaData(集群级)，主要存储clusterID、settings、templates;</li>
+<li>IndexMetaData(索引级)，主要存储numberOfShards、mappings；</li>
+<li>ShardStateMetaData(分片级)，主要存储version、indexUUID、primary。<br><strong>集群在持久化时不会保存哪个分片位于哪个节点上，这些信息是在在集群元数据和索引元数据恢复完成后，发布一个异步的任务来确定去完成构建路由表的过程。</strong></li>
+</ul>
+<h2 id="2-3-分配分片"><a href="#2-3-分配分片" class="headerlink" title="2.3 分配分片"></a>2.3 分配分片</h2><h3 id="2-3-1-分配主分片"><a href="#2-3-1-分配主分片" class="headerlink" title="2.3.1 分配主分片"></a>2.3.1 分配主分片</h3><p>ES5.X之后，ES为每个分片设置了一个shardUUID，并在元数据中保存着哪个分片是主分片。因为ES写的顺序是先写主分片，然后并发写副本分片，这样的机制保证了主分片的数据是最新的。因此元数据记录的最新主分片即为重启后的主分片。在重新启动时，主分片所在的节点可能无法正常启动，这时候会在in-sync列表里选取一个分片作为主分片。</p>
+<h3 id="2-3-2-分配副本分片"><a href="#2-3-2-分配副本分片" class="headerlink" title="2.3.2 分配副本分片"></a>2.3.2 分配副本分片</h3><p>主分片分配完成后，分片汇总信息中的其他分片作为副本分片，如果还不够，则说明有的分片所在的节点已经无法启动，这时候集群会在其他节点重新分配副本分片。ES并没有强制要求相同分片的副本不能再同一个节点分配。<br>Kafka则强制要求同一个分片的多个副本不能分配到同一个节点。</p>
+<h2 id="2-4-分片恢复"><a href="#2-4-分片恢复" class="headerlink" title="2.4 分片恢复"></a>2.4 分片恢复</h2><p>分片分配成功后进入recovery流程。<br>::主分片的recovery不会等到副本分片分配完成后才开始，但是副本分片的recovery需要等到主分片recovery完成后才开始。::</p>
+<ul>
+<li>为什么需要recovery流程？<br>对于主分片来说，上次集群停机后可能有一些数据没来得及刷盘<br>对于副分片来说，一是没刷盘，二是主分片写完了，副分片还没来得及写，主副分片数据不一致。</li>
+</ul>
+<h3 id="2-4-1-主分片recovery"><a href="#2-4-1-主分片recovery" class="headerlink" title="2.4.1 主分片recovery"></a>2.4.1 主分片recovery</h3><p>由于每次写操作都会记录事务日志，因此最后一次提交（Lucene的一次提交即一次fsync刷盘过程）之后的translog中进行重放，建立Lucene索引，此时完成主分片的recovery。</p>
+<h3 id="2-4-2-副本分片recovery"><a href="#2-4-2-副本分片recovery" class="headerlink" title="2.4.2 副本分片recovery"></a>2.4.2 副本分片recovery</h3><p>副本分片需要恢复成与主分片数据一致，并且副本分片恢复期间允许新的索引操作。</p>
+<ul>
+<li>副本恢复分为两个阶段进行：</li>
+</ul>
+<ol>
+<li>副本节点向主节点发送请求复制，这时候主节点会将已刷盘的数据制作快照，并将快照发送到副本节点。同时在translog上加锁，为了保留在恢复的过程中执行的写操作。</li>
+<li>将translog做快照，快照中包括从上一阶段开始，到执行translog过程中新增的索引数据，将这些translog回放。</li>
+</ol>
+<ul>
+<li>这个版本的恢复存在的问题是，不管副本分片之前有无数据都需要复制主分片的所有数据。当数据量较大时，phase1需要执行很长时间，这回带来两个问题：</li>
+<li>不必要的数据传输，如果副本分片之前存在大部分数据，或者整体的数据，phase1的数据不需要进行。</li>
+<li>phase1如果执行时间较长，这时候主节点的translog由于被锁住，长时间不能刷盘，translog无法被清理。</li>
+</ul>
+<p>基于以上不足，ES改为通过序列号保证，分片在每次刷盘是都会记录当前分片刷盘的sequenceNumber。副本在恢复时会将自己的sequenceNumber发送给主分片，如果sequenceNumber在translog中，则直接使用translog恢复，否则才制作phase1中的快照。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>当一个索引的主分片分配成功时，该分片可以进行写操作。<br>当一个索引所有的主分片分配成功时，该索引由Red变为Yellow。<br>当一个集群所有索引的主分片分配成功时，整个集群由Red变为Yellow。<br>当一个集群所有索引的所有分片分配成功时，整个集群变为Green。</p>
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/08/16/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%80%EF%BC%9A%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5%E5%92%8C%E5%8E%9F%E7%90%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2021/08/16/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%80%EF%BC%9A%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5%E5%92%8C%E5%8E%9F%E7%90%86/" itemprop="url">ES源码分析一、基本概念和原理</a></h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-08-16T11:21:19+08:00">
+                2021-08-16
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h2 id="1-1-基本概念"><a href="#1-1-基本概念" class="headerlink" title="1.1 基本概念"></a>1.1 基本概念</h2><p>Elasticsearch是实时的分布式搜索分析引擎，底层使用Lucene提供索引和搜索功能。<br>实时：新增到ES的数据最快1s可被搜到<br>分布式：动态调整集群规模，弹性扩容</p>
+<h3 id="1-1-1-索引结构"><a href="#1-1-1-索引结构" class="headerlink" title="1.1.1 索引结构"></a>1.1.1 索引结构</h3><p>ES是面向文档的，各种文本内容以文档的形式存储在ES索引中，默认使用JSON作为文档的序列化格式，文档可有很多字段，创建索引时需要声明每个字段的数据类型，某些类型需要指定分析器。<br>::在存储结构上，由_index、_id 共同标识一个文档。 _index即索引，_id即某个索引下文档的唯一ID::</p>
+<h3 id="1-1-2-分片（shard）"><a href="#1-1-2-分片（shard）" class="headerlink" title="1.1.2 分片（shard）"></a>1.1.2 分片（shard）</h3><p>分布式系统中，单机无法存储规模巨大的数据，需依靠大规模集群处理和存储（水平扩展），对数据分片，通过路由规则定位某一数据位置<br>除了对数据分片提高水平扩展能力外，分布式存储中还会吧数据复制成多个副本，放置到不同机器上（要保证主分片和副本分片不在同一台机器，否则机器宕掉后数据无法恢复），对于并发更新问题，ES写过程中先写主分片，成功后再写副本分片，::恢复阶段::以主分片为准<br>数据分片和数据副本关系如下图。<br><img src="/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%80%EF%BC%9A%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5%E5%92%8C%E5%8E%9F%E7%90%86/47AA6B97-26CB-4A21-B766-4E69AF7C1872.png"></p>
+<ul>
+<li>一个ES索引包含很多分片，一个分片是一个完整的lucene索引，即一个数据分片是一个完整的搜索引擎，可以独立执行建立索引和搜索任务</li>
+<li>一个分片又由很多分段（segment）组成，ES每次执行”refresh”操作都会生成一个新的分段，其中包括若干文档，分段内部文档的不同字段被单独建立索引</li>
+<li>每个字段的值由若干Term组成，（Term是写入进索引的源数据经过分析器得到的最终结果，分词+过滤）</li>
+</ul>
+<p>::在索引建立时需要确定好主分片数，ES5.x以后支持对索引的主分片拆分::</p>
+<h3 id="1-1-3-动态更新索引（我理解是mapping新增字段）"><a href="#1-1-3-动态更新索引（我理解是mapping新增字段）" class="headerlink" title="1.1.3 动态更新索引（我理解是mapping新增字段）"></a>1.1.3 动态更新索引（我理解是mapping新增字段）</h3><p>通过关键词搜索时会使用到倒排索引的数据结构，::倒排索引一旦被写入就不可被更改::。<br>索引如何更新？新增内容被写入一个新的倒排索引，查询倒排索引并对结果进行合并后返回。</p>
+<h3 id="1-1-4-近实时搜索"><a href="#1-1-4-近实时搜索" class="headerlink" title="1.1.4 近实时搜索"></a>1.1.4 近实时搜索</h3><p>对于写操作来说，一批数据会在内存中缓存一段时间（ES默认1s），每1s执行一次refresh，在内存中行程一个segment，每5m或者通过某些写入策略执行一次flush，将内存中存在的分段合并并写入磁盘，当执行完refresh后，数据即可见，这两个过程中都会通过写事务日志来保证数据的安全，当ES启动的时候重放最后一次提交后发生的变更操作。</p>
+<h3 id="段合并"><a href="#段合并" class="headerlink" title="段合并"></a>段合并</h3><p>在ES中，每秒清空一次写缓冲 buffer，将这些数据写入文件，这个过程称为refresh，::每次refresh后会创建一个新的Lucene段::，但是分段太多会消耗文件句柄和内存，并且::每次搜索都会遍历每个段，查询完后对结果进行合并::，所以段越多，搜索效率越低下。常用的方案是选择::大小相似的分段::进行合并，在合并过程中，标记为删除的分段不会写入新分段，当合并结束后旧分段被删除，标记删除的数据才从磁盘或者内存中被删除。</p>
+<h2 id="集群原理"><a href="#集群原理" class="headerlink" title="集群原理"></a>集群原理</h2><p>ES集群使用主从模式，部分操作只能由Master节点操作，并负责维护集群元数据信息，缺点是主节点存在单点故障。<br>集群元数据信息包括：内容路由信息、全局配置信息<br>集群状态由主节点维护，如果主节点从数据节点接收更新，会将更新广播到其他数据节点。</p>
+<h3 id="节点集群角色"><a href="#节点集群角色" class="headerlink" title="节点集群角色"></a>节点集群角色</h3><ul>
+<li>主节点<br>负责集群层面的相关操作，管理集群变更。 ::脑裂如何解决？::<br>主节点全局唯一，并且可以作为数据节点。</li>
+<li>数据节点<br>负责保存数据，执行数据相关操作：CRUD&#x2F;搜索&#x2F;聚合等，数据节点对CPU、内存、I&#x2F;O要求较高。</li>
+<li>预处理节点<br>5.0版本后引入的概念，写入文档前，通过事先定义好的一系列processors和pipline，对数据进行转化和富化，拦截bulk和index请求，进行相关操作后传回bulk或index API。::默认在所有节点启用ingest::</li>
+<li>协调节点<br>处理客户端请求的节点被称为协调节点（每个节点都可以成为协调节点，这取决于请求打到哪台机器上），客户端请求可以发送到集群的任何节点，每个节点都知道任意文档所处的机器和分片，然后转发这些请求，收集数据并返回给客户端。</li>
+<li>部落节点<br>5.0版本后被协调节点取代，部落节点可以在多个集群之间充当联合客户端。</li>
+</ul>
+<h3 id="集群健康状态"><a href="#集群健康状态" class="headerlink" title="集群健康状态"></a>集群健康状态</h3><ul>
+<li>Green 所有主分片和副本分片都正常运行</li>
+<li>Yellow 所有主分片正常运行，但部分副本分片状态异常（存在单点故障）</li>
+<li>Red 有主分片异常</li>
+</ul>
+<h2 id="ES源码内部模块"><a href="#ES源码内部模块" class="headerlink" title="ES源码内部模块"></a>ES源码内部模块</h2><ul>
+<li>Cluster<br>  Cluster模块是主节点执行集群管理功能的封装实现，管理集群状态，维护集群配置等<br>  主要功能：<ol>
+<li>管理集群状态，将新生成的集群状态发布到集群所有节点。</li>
+<li>调用allocation模块执行分片分配，决策哪些分片应该分配到哪个 节点。</li>
+<li>在集群各节点中直接迁移分片，保持数据平衡。</li>
+</ol>
+</li>
+<li>Allocation<br>Allocation模块封装了分片分配相关功能和策略，本模块由::主节点::调用，创建新索引、集群完全重启都需要分片重新分配。</li>
+<li>Discovery<br>Discovery模块负责发现集群中的节点，以及选举主节点。<br>当节点加入或 退出集群时，主节点会采取相应的行动。从某种角度来说，::发现模块起到类似ZooKeeper的作用::，选主并管理集群拓扑。</li>
+<li>Gateway<br>Gateway模块负责对收到Master广播下来的集群状态(cluster state)数据的持久化存储，并在集群完全重启时恢复它们。</li>
+<li>Indices<br>Indices模块管理全局级的索引设置，但不包括索引级的设置，封装了索引数据恢复功能。</li>
+<li>HTTP<br>http模块允许通过JSON over HTTP的方式访问ES的API。（完全异步）</li>
+<li>Transport<br>传输模块用于集群内节点之间的内部通信。传输模块使用 TCP 通信，每个节点都与其他节点维持若干 TCP 长连接。（完全异步）</li>
+<li>Engine<br>Engine模块封装了对Lucene的操作及translog的调用，它是对一个分片读写操作的最终提供者。</li>
+</ul>
+
+          
+        
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+    
   </section>
 
   
@@ -538,7 +1581,7 @@
               
                 <a href="/archives/%20%7C%7C%20archive">
               
-                  <span class="site-state-item-count">2</span>
+                  <span class="site-state-item-count">8</span>
                   <span class="site-state-item-name">日志</span>
                 </a>
               </div>
@@ -551,7 +1594,7 @@
               
               <div class="site-state-item site-state-tags">
                 
-                  <span class="site-state-item-count">2</span>
+                  <span class="site-state-item-count">3</span>
                   <span class="site-state-item-name">标签</span>
                 
               </div>

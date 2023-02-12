@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+
+
+
+  
+
+
+<html class="theme-next muse use-motion" lang="zh-Hans">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.4" rel="stylesheet" type="text/css" />
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=5.1.4">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=5.1.4" color="#222">
+
+
+
+
+
+  <meta name="keywords" content="Elasticsearch源码分析&实战," />
+
+
+
+
+
+
+
+
+
+
+<meta name="description" content="Discovery模块负责发现集群中的节点，以及选择主节点。ES内置实现为 Zen Discovery。 5.1 为什么使用主从模式？除主从模式以外，另一种选择是分布式哈希表DHT，可以支持每小时数千节点的离开和加入。但是ES典型场景为：当前集群没有那么多节点离开和加入，并且节点数量远小于单个节点能维护的连接数。所以说ES更适合使用主从模式。 5.2 选举算法 Bully：Leader选举的基本算">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ES源码分析五、集群是如何确定主节点的？">
+<meta property="og:url" content="http://example.com/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/">
+<meta property="og:site_name" content="日暮入桃源">
+<meta property="og:description" content="Discovery模块负责发现集群中的节点，以及选择主节点。ES内置实现为 Zen Discovery。 5.1 为什么使用主从模式？除主从模式以外，另一种选择是分布式哈希表DHT，可以支持每小时数千节点的离开和加入。但是ES典型场景为：当前集群没有那么多节点离开和加入，并且节点数量远小于单个节点能维护的连接数。所以说ES更适合使用主从模式。 5.2 选举算法 Bully：Leader选举的基本算">
+<meta property="og:locale">
+<meta property="article:published_time" content="2021-10-02T07:21:28.000Z">
+<meta property="article:modified_time" content="2023-02-12T08:05:26.699Z">
+<meta property="article:author" content="ondestinies">
+<meta property="article:tag" content="Elasticsearch源码分析&amp;实战">
+<meta name="twitter:card" content="summary">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '',
+    scheme: 'Muse',
+    version: '5.1.4',
+    sidebar: {"position":"left","display":"post","offset":12,"b2t":false,"scrollpercent":false,"onmobile":false},
+    fancybox: true,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="http://example.com/2021/10/02/ES源码分析五：集群是如何确定主节点的？/"/>
+
+
+
+
+
+  <title>ES源码分析五、集群是如何确定主节点的？ | 日暮入桃源</title>
+  
+
+
+
+
+
+
+
+
+<meta name="generator" content="Hexo 6.3.0"></head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta ">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">日暮入桃源</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <p class="site-subtitle">命数如织，当为磐石</p>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives/%20" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            归档
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2021/10/02/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E4%BA%94%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%98%AF%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E4%B8%BB%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="日暮入桃源">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">ES源码分析五、集群是如何确定主节点的？</h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2021-10-02T15:21:28+08:00">
+                2021-10-02
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><del>Discovery模块负责发现集群中的节点，以及选择主节点。</del><br><del>ES内置实现为 Zen Discovery。</del></p>
+<h2 id="5-1-为什么使用主从模式？"><a href="#5-1-为什么使用主从模式？" class="headerlink" title="5.1 为什么使用主从模式？"></a>5.1 为什么使用主从模式？</h2><p>除主从模式以外，另一种选择是分布式哈希表DHT，可以支持每小时数千节点的离开和加入。<br>但是ES典型场景为：当前集群没有那么多节点离开和加入，并且节点数量远小于单个节点能维护的连接数。<br>所以说ES更适合使用主从模式。</p>
+<h2 id="5-2-选举算法"><a href="#5-2-选举算法" class="headerlink" title="5.2 选举算法"></a>5.2 选举算法</h2><ul>
+<li>Bully：Leader选举的基本算法之一。<br>它假定所有节点都有一个唯一的ID， 使用该ID对节点进行排序，即任何时候当前Leader都是参与集群选举的最高ID节点。<br>但是通过上述选举算法会有脑裂问题，可以通过”法定得票人数过半“解决。</li>
+<li>Paxos：选举灵活性比Bully算法更高，但是实现复杂。</li>
+</ul>
+<h2 id="5-3-相关配置"><a href="#5-3-相关配置" class="headerlink" title="5.3 相关配置"></a>5.3 相关配置</h2><ul>
+<li>discovery.zen.minimum_master_nodes 最小节点数，法定得票人数过半通过该配置决定。<br>  该配置可以解决脑裂问题，除此之外，改配置还有其他实际作用。<ol>
+<li>触发选主：进入选主的流程之前，参选的节点数需要达到法定人 数。</li>
+<li>决定Master ：选出临时的Master之后，这个临时Master需要判断加入它的节点达到法定人数，才确认选主成功。</li>
+<li>gateway选举元信息： 向有Master资格的节点发起请求获取元数据，获取的响应数量必须达到法定人数，也就是参与元信息选举的节点数。</li>
+<li>Master发布集群状态： 发布成功数量为多数。</li>
+</ol>
+</li>
+<li>discovery.zen.ping.unicast.hosts 集群种子节点列表  构建集群时 本节点会尝试连接这个节点列表，那么列表中的主机会看到整个集群中 都有哪些主机。可以配置为部分或全部集群节点。</li>
+<li>discovery.zen.join_timeout 节点加入现有集群时的超时时间，默认 为 ping_timeout的20倍。</li>
+<li>discovery.zen.join_retry_attempts join_timeout 超时之后的重试次 数，默认为3次。</li>
+<li>discovery.zen.master_election.ignore_non_master_pings  设置为true时，选主阶段将忽略来自不具备Master资格节点(node.master: false)的ping请求，默认为false。</li>
+</ul>
+<h2 id="5-4-流程分析"><a href="#5-4-流程分析" class="headerlink" title="5.4 流程分析"></a>5.4 流程分析</h2><p>ZenDiscovery的选主过程：</p>
+<ol>
+<li>每个节点计算最小的已知节点ID，该节点为临时Master，并向该节点发送领导投票。</li>
+<li>如果一个节点收到足够多的票数，并且该节点也为自己投票，那么确定Master角色，开始发布集群状态。</li>
+</ol>
+<p><del>所有节点都会参与选举，并参与投票，但是只有node.master&#x3D;true的节点投票才有效。</del><br><del>获取多少选票才可以赢得选举，就是法定人数，通过discovery.zen.minimum_master_nodes来决定</del><br><del>discovery.zen.minimum_master_nodes为了避免脑裂，该配置最小值应为有Master资格节点数n&#x2F;2+1</del></p>
+<h3 id="5-4-1-具体分析"><a href="#5-4-1-具体分析" class="headerlink" title="5.4.1 具体分析"></a>5.4.1 具体分析</h3><ol>
+<li>选举临时Master<ul>
+<li>如果本节点当选，则等待确立Master</li>
+<li>如果其他节点当选，则尝试加入集群，然后启动节点失效探测器。</li>
+</ul>
+</li>
+</ol>
+<p>选举过程的实现位于 ::ZenDiscovery#findMaster::。该函数查找当前集群的活跃 Master，或者从候选者中选择新的Master。如果选主成功，则返回选定的Master，否则返回空。<br>    * ping所有的节点，获取节点列表fullPingResponses，ping结果不包含本节点，把本节点单独添加到fullPingResponses中。 [第一步]<br>    * 构建两个列表activeMasters和masterCandidates  [第二步]<br>    * 如果activeMasters列表为空，则从masterCandidates列表中选举，可能选举失败，也可能成功。如果不为空，则从activeMasters列表中选择最合适的作为Master。（masterCandidates不是从activeMasters中拿的么？）[第三步]</p>
+<blockquote>
+<p>activeMasters：储存集群当前活跃的Master列表，遍历[第一步]获取的所有节点，将每个节点所认为的当前Master节点加入activeMasters列表中(不包括本节点)。<br>这个过程是将集群当前已存在的Master加入activeMasters列表，正常情况下只有一个。<br>masterCandidates： 存储master候选者列表，遍历第一步获取的列表，去掉不具备Master资格的节点，添加到这个列表中。  </p>
+</blockquote>
+<ul>
+<li><p>从masterCandidates中选择主节点<br>  具体细节实现封装在::ElectMasterService::类中，例如，判断 候选者是否足够，选择具体的节点作为Master等。</p>
+<ol>
+<li>首先要判断是否达到法定人数，否则选举失败。</li>
+<li>达到法定人数后，通过自定义函数比较器选择一个合适的节点。<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">//自定义函数比较</span><br><span class="line">public static int compare(MasterCandidate c1, MasterCandidate c2) &#123;</span><br><span class="line">		//先比较集群状态版本</span><br><span class="line">		int ret = Long.compare(c2.clusterStateVersion, c1.clusterStateVersiion);</span><br><span class="line">		//如果版本号相同，则比较节点ID</span><br><span class="line">		if (ret == 0) &#123;</span><br><span class="line">			ret = compareNode(c1.getNode(), c2.getNode());</span><br><span class="line">		&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">public static int compareNode(DiscoveryNode o1, DiscoveryNode o2) &#123;</span><br><span class="line">		//判断两个节点中一个具备Master资格而另一个不具备Master资格的情况</span><br><span class="line">		if (o1.isMasterNode() &amp;&amp; !o2.isMasterNode()) &#123;</span><br><span class="line">			return -1;</span><br><span class="line">		&#125;</span><br><span class="line">		if (!o1.isMasterNode() &amp;&amp; o2.isMasterNode()) &#123;</span><br><span class="line">			return -1;</span><br><span class="line">		&#125;</span><br><span class="line">		//通过节点ID排序</span><br><span class="line">		return o1.getId().compareTo(o2.getId());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></li>
+</ol>
+</li>
+<li><p>从activeMasters列表中选择<br>列表存储着集群当前存在活跃的Master，从这些已知的Master节点中选择一个作为选举结果。<br>当前列表中的节点理论上都是具备Master资格的。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">public DiscoveryNode tieBreakActiveMasters(Collection&lt;DiscoveryNode&gt; activeMasters) &#123;</span><br><span class="line">		return activeMasters.stream().min(EkectMasterService::compareNodes).get();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></li>
+</ul>
+<h3 id="5-4-2-投票与得票的实现"><a href="#5-4-2-投票与得票的实现" class="headerlink" title="5.4.2 投票与得票的实现"></a>5.4.2 投票与得票的实现</h3><p>在ES中，发送投票就是发送加入集群(JoinRequest)请求。得票就 是申请加入该节点的请求的数量。<br>收集投票，进行统计的实现在ZenDiscovery#handleJoinRequest方法 中，收到的连接被存储到ElectionContext.joinRequestAccumulator中。当 节点检查收到的投票是否足够时，就是检查加入它的连接数是否足够， 其中会去掉没有Master资格节点的投票。</p>
+<h3 id="5-4-3-临时Master节点确认后如何确定正式Master节点的？"><a href="#5-4-3-临时Master节点确认后如何确定正式Master节点的？" class="headerlink" title="5.4.3 临时Master节点确认后如何确定正式Master节点的？"></a>5.4.3 临时Master节点确认后如何确定正式Master节点的？</h3><p>选举出的临时Master有两种情况：</p>
+<ul>
+<li>该临时节点是本节点<ol>
+<li>等待足够多的具备Master资格的节点加入本节点（法定投票人数），完成选举。</li>
+<li>超时（默认30s）后还没有达到法定人数，需要重新选举。</li>
+<li>成功后发布新的clusterState。</li>
+</ol>
+</li>
+<li>该临时节点不是本节点<ol>
+<li>不再接受其他节点的join请求。</li>
+<li>向临时Master节点发送加入请求并等待回复。</li>
+<li>最终当选的master先发布集群状态，再确认join请求。</li>
+</ol>
+</li>
+</ul>
+<h2 id="5-5-节点失效检测"><a href="#5-5-节点失效检测" class="headerlink" title="5.5 节点失效检测"></a>5.5 节点失效检测</h2><p>选主流程结束后确认Master身份，集群开始运行后会持续检测节点失效状态（是否离线）。</p>
+<ul>
+<li>NodesFD<br>在Master节点，启动NodesFaultDetection，定期探 测加入集群的节点是否活跃。</li>
+<li>MasterFD<br>在非Master节点启动MasterFaultDetection，定期探 测Master节点是否活跃。</li>
+</ul>
+<blockquote>
+<p>NodesFaultDetection和MasterFaultDetection都是通过定期(默认为1 秒)发送的ping请求探测节点是否正常的，当失败达到一定次数(默认 为3次)，或者收到来自底层连接模块的节点离线通知时，开始处理节 点离开事件。  </p>
+</blockquote>
+<h3 id="5-5-1-NodesFaultDetection处理流程"><a href="#5-5-1-NodesFaultDetection处理流程" class="headerlink" title="5.5.1  NodesFaultDetection处理流程"></a>5.5.1  NodesFaultDetection处理流程</h3><p>检查一下当前集群总节点数是否达到法定节点数(过半)，如果不 足，则会放弃 Master 身份，重新加入集群。</p>
+<p>检测原因：避免脑裂<br>对应事件处理主要实现如下:在 ZenDiscovery#handleNodeFailure 中执行NodeRemovalClusterStateTaskExecutor.execute。<br>主节点在探测到节点离线的事件处理中，如果发现当前集群节点数 量不足法定人数，则放弃Master身份，从而避免产生双主。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">@Override</span><br><span class="line">public ClusterTasksResult&lt;Task&gt; execute(final ClusterState currentState, final List&lt;Task&gt; tasks) throws Exception &#123;</span><br><span class="line">    if (electMasterService.hasEnoughMasterNodes(remainingNodesClusterState.nodes()) == false) &#123;</span><br><span class="line">        final int masterNodes = electMasterService.countMasterNodes(remainingNodesClusterState.nodes());</span><br><span class="line">        rejoin.accept(LoggerMessageFormat.format(&quot;not enough master nodes (has [&#123;&#125;], but needed [&#123;&#125;])&quot;, masterNodes, electMasterService.minimumMasterNodes()));</span><br><span class="line">        return resultBuilder.build(currentState);</span><br><span class="line">    &#125; else &#123;</span><br><span class="line">        return resultBuilder.build(allocationService.deassociateDeadNodes(remainingNodesClusterState, true, describeTasks(tasks)));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-5-2-MasterFaultDetection处理流程"><a href="#5-5-2-MasterFaultDetection处理流程" class="headerlink" title="5.5.2  MasterFaultDetection处理流程"></a>5.5.2  MasterFaultDetection处理流程</h3><p>探测Master离线的处理很简单，重新加入集群。 本质上是重新执行一遍选主流程。<br>对应事件处理主要实现如下:ZenDiscovery#handleMasterGone</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">private void handleMasterGone(final DiscoveryNode masterNode, final Throwable cause, final String reason) &#123;</span><br><span class="line">    synchronized (stateMutex) &#123;</span><br><span class="line">        if (!localNodeMaster() &amp;&amp; masterNode.equals(committedState.get().nodes().getMasterNode())) &#123;</span><br><span class="line">            // flush any pending cluster states from old master, so it will not be set as master again</span><br><span class="line">            pendingStatesQueue.failAllStatesAndClear(new ElasticsearchException(&quot;master left [&#123;&#125;]&quot;, reason));</span><br><span class="line">            rejoin(&quot;master left (reason = &quot; + reason + &quot;)&quot;);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/Elasticsearch%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90-%E5%AE%9E%E6%88%98/" rel="tag"># Elasticsearch源码分析&实战</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2021/09/09/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%9B%9B%EF%BC%9A%E8%8A%82%E7%82%B9%E5%9C%A8%E5%85%B3%E9%97%AD%E6%97%B6%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F/" rel="next" title="ES源码分析四、节点在关闭时发生了什么？">
+                <i class="fa fa-chevron-left"></i> ES源码分析四、节点在关闭时发生了什么？
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2021/10/06/ES%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%E5%85%AD%EF%BC%9A%E9%9B%86%E7%BE%A4%E5%86%99%E5%85%A5%E6%B5%81%E7%A8%8B/" rel="prev" title="ES源码分析六、集群写入流程">
+                ES源码分析六、集群写入流程 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <p class="site-description motion-element" itemprop="description"></p>
+          </div>
+
+          <nav class="site-state motion-element">
+
+            
+              <div class="site-state-item site-state-posts">
+              
+                <a href="/archives/%20%7C%7C%20archive">
+              
+                  <span class="site-state-item-count">8</span>
+                  <span class="site-state-item-name">日志</span>
+                </a>
+              </div>
+            
+
+            
+
+            
+              
+              
+              <div class="site-state-item site-state-tags">
+                
+                  <span class="site-state-item-count">3</span>
+                  <span class="site-state-item-name">标签</span>
+                
+              </div>
+            
+
+          </nav>
+
+          
+
+          
+
+          
+          
+
+          
+          
+
+          
+
+        </div>
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#5-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%BF%E7%94%A8%E4%B8%BB%E4%BB%8E%E6%A8%A1%E5%BC%8F%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">5.1 为什么使用主从模式？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-2-%E9%80%89%E4%B8%BE%E7%AE%97%E6%B3%95"><span class="nav-number">2.</span> <span class="nav-text">5.2 选举算法</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-3-%E7%9B%B8%E5%85%B3%E9%85%8D%E7%BD%AE"><span class="nav-number">3.</span> <span class="nav-text">5.3 相关配置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-4-%E6%B5%81%E7%A8%8B%E5%88%86%E6%9E%90"><span class="nav-number">4.</span> <span class="nav-text">5.4 流程分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-1-%E5%85%B7%E4%BD%93%E5%88%86%E6%9E%90"><span class="nav-number">4.1.</span> <span class="nav-text">5.4.1 具体分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-2-%E6%8A%95%E7%A5%A8%E4%B8%8E%E5%BE%97%E7%A5%A8%E7%9A%84%E5%AE%9E%E7%8E%B0"><span class="nav-number">4.2.</span> <span class="nav-text">5.4.2 投票与得票的实现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-3-%E4%B8%B4%E6%97%B6Master%E8%8A%82%E7%82%B9%E7%A1%AE%E8%AE%A4%E5%90%8E%E5%A6%82%E4%BD%95%E7%A1%AE%E5%AE%9A%E6%AD%A3%E5%BC%8FMaster%E8%8A%82%E7%82%B9%E7%9A%84%EF%BC%9F"><span class="nav-number">4.3.</span> <span class="nav-text">5.4.3 临时Master节点确认后如何确定正式Master节点的？</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-5-%E8%8A%82%E7%82%B9%E5%A4%B1%E6%95%88%E6%A3%80%E6%B5%8B"><span class="nav-number">5.</span> <span class="nav-text">5.5 节点失效检测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-1-NodesFaultDetection%E5%A4%84%E7%90%86%E6%B5%81%E7%A8%8B"><span class="nav-number">5.1.</span> <span class="nav-text">5.5.1  NodesFaultDetection处理流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-2-MasterFaultDetection%E5%A4%84%E7%90%86%E6%B5%81%E7%A8%8B"><span class="nav-number">5.2.</span> <span class="nav-text">5.5.2  MasterFaultDetection处理流程</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2023</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">ondestinies</span>
+
+  
+</div>
+
+
+  <div class="powered-by">由 <a class="theme-link" target="_blank" href="https://hexo.io">Hexo</a> 强力驱动</div>
+
+
+
+  <span class="post-meta-divider">|</span>
+
+
+
+  <div class="theme-info">主题 &mdash; <a class="theme-link" target="_blank" href="https://github.com/iissnan/hexo-theme-next">NexT.Muse</a> v5.1.4</div>
+
+
+
+
+        
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+  
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.4"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.4"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.4"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
