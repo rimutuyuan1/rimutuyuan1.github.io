@@ -79,15 +79,15 @@
 
 
 
-<meta name="description" content="kafka是什么呢？ Apache Kafka 是一款开源的消息引擎系统。 根据维基百科的定义，消息引擎系统是一组规范。企业利用这组规范在不同系统之间传递语义准确的消息，实现松耦合的异步式数据传递。 最基本的消息引擎基本都是做这些事的：系统A发送消息到消息引擎系统，系统B从消息引擎系统中获取系统A发送的消息。重点为：  消息引擎传输的对象是消息，消息格式的设计是怎样的； 如何传输消息属于消息引擎设">
+<meta name="description" content="一、kafka是什么 Apache Kafka 是一款开源的消息引擎系统。 根据维基百科的定义，消息引擎系统是一组规范。企业利用这组规范在不同系统之间传递语义准确的消息，实现松耦合的异步式数据传递。 消息引擎存在的作用：削峰填谷。 上下游（由于业务性质的不同所导致的）处理速度不匹配，需要消息引擎来做缓冲，对抗这种上下游系统 TPS 的错配以及瞬时峰值流量。 最基本的消息引擎基本都是做这些事的：系统">
 <meta property="og:type" content="article">
-<meta property="og:title" content="kafka入门">
+<meta property="og:title" content="kafka核心技术实战一、kafka入门">
 <meta property="og:url" content="http://example.com/2023/02/12/kafka%E5%85%A5%E9%97%A8/">
 <meta property="og:site_name" content="日暮入桃源">
-<meta property="og:description" content="kafka是什么呢？ Apache Kafka 是一款开源的消息引擎系统。 根据维基百科的定义，消息引擎系统是一组规范。企业利用这组规范在不同系统之间传递语义准确的消息，实现松耦合的异步式数据传递。 最基本的消息引擎基本都是做这些事的：系统A发送消息到消息引擎系统，系统B从消息引擎系统中获取系统A发送的消息。重点为：  消息引擎传输的对象是消息，消息格式的设计是怎样的； 如何传输消息属于消息引擎设">
+<meta property="og:description" content="一、kafka是什么 Apache Kafka 是一款开源的消息引擎系统。 根据维基百科的定义，消息引擎系统是一组规范。企业利用这组规范在不同系统之间传递语义准确的消息，实现松耦合的异步式数据传递。 消息引擎存在的作用：削峰填谷。 上下游（由于业务性质的不同所导致的）处理速度不匹配，需要消息引擎来做缓冲，对抗这种上下游系统 TPS 的错配以及瞬时峰值流量。 最基本的消息引擎基本都是做这些事的：系统">
 <meta property="og:locale">
 <meta property="article:published_time" content="2023-02-12T06:12:11.000Z">
-<meta property="article:modified_time" content="2023-02-12T07:42:49.993Z">
+<meta property="article:modified_time" content="2023-02-12T11:24:38.845Z">
 <meta property="article:author" content="ondestinies">
 <meta property="article:tag" content="kafka核心技术实战">
 <meta name="twitter:card" content="summary">
@@ -126,7 +126,7 @@
 
 
 
-  <title>kafka入门 | 日暮入桃源</title>
+  <title>kafka核心技术实战一、kafka入门 | 日暮入桃源</title>
   
 
 
@@ -250,7 +250,7 @@
 
         
         
-          <h1 class="post-title" itemprop="name headline">kafka入门</h1>
+          <h1 class="post-title" itemprop="name headline">kafka核心技术实战一、kafka入门</h1>
         
 
         <div class="post-meta">
@@ -300,9 +300,11 @@
       
 
       
-        <p>kafka是什么呢？</p>
+        <p><strong>一、kafka是什么</strong></p>
 <p>Apache Kafka 是一款开源的消息引擎系统。</p>
 <p>根据维基百科的定义，消息引擎系统是一组规范。企业利用这组规范在不同系统之间传递语义准确的消息，实现松耦合的异步式数据传递。</p>
+<p>消息引擎存在的作用：削峰填谷。</p>
+<p>上下游（由于业务性质的不同所导致的）处理速度不匹配，需要消息引擎来做缓冲，对抗这种上下游系统 TPS 的错配以及瞬时峰值流量。</p>
 <p>最基本的消息引擎基本都是做这些事的：系统A发送消息到消息引擎系统，系统B从消息引擎系统中获取系统A发送的消息。重点为：</p>
 <ol>
 <li>消息引擎传输的对象是消息，消息格式的设计是怎样的；</li>
@@ -320,10 +322,54 @@
 <li>发布订阅模型：与点对点模型不同的是，该模型有”主题topic”的概念，发送消息的角色为发布者（Publisher），接受消息的角色为订阅者（Subscriber），该模型中发布者和订阅者均可以为多个。</li>
 </ol>
 <p><strong>Kafka消息引擎支持以上两种消息模型</strong></p>
-<hr>
-<p>消息引擎存在的作用：削峰填谷。</p>
-<p>上下游（由于业务性质的不同所导致的）处理速度不匹配，需要消息引擎来做缓冲，对抗这种上下游系统 TPS 的错配以及瞬时峰值流量。</p>
-<hr>
+<p><strong>二、kafka相关术语</strong></p>
+<p>kafka属于分布式的消息引擎兄，主要功能是提供一套完备的消息发布与订阅解决方案，</p>
+<p>主题：在kafka中，发布订阅的对象是主题Topic，可以为每一个业务、每个应用、每类数据创建专属的主题。</p>
+<p>客户端：向主题中发布消息或者从主题中消费消息的角色称之为客户端，发布消息的客户端被称为生产者Producer，订阅主题并消费的客户端称之为消费者Consumer，<strong>和生产者一样，消费者也可以同时订阅&amp;消费多个主题的消息。</strong></p>
+<p>服务端：kafka消息引擎Broker称之为服务端，由被称为<strong>Broker</strong>的服务进程组成，即一个kafka集群由多个Broker组成，Broker负责接收和处理客户端发送过来的请求，以及对消息进行<strong>持久化</strong>，</p>
+<ul>
+<li>高可用</li>
+</ul>
+<p>同Elasticsearch一样，多个Broker推荐部署在不同的机器上，即使该集群的某几台机器宕机，其他Broker仍然可以对外提供服务。</p>
+<p>备份机制：将相同的数据拷贝到多台机器上保存，这些数据拷贝被称为副本Replica。</p>
+<blockquote>
+<p>kafka定义了两类副本：领导者副本Leader Replica和追随者副本Follower Replica</p>
+<p>领导者副本对外提供服务（与客户端交互），追随者副本仅从领导者副本同步数据并持久化，保持同步。</p>
+</blockquote>
+<ul>
+<li>可伸缩</li>
+</ul>
+<p>将数据分割成多段分别保存在不同的Broker上，保证数据可以横向扩展（解决数据越来越多的问题）。</p>
+<p>这种机制就是分区（Partitioning）</p>
+<blockquote>
+<p>同MongoDB和Elasticsearch中的Shard，HBase中的Ragion</p>
+</blockquote>
+<p>kafka的分区机制指的是将<strong>每个主题划分成多个分区Partition</strong>，每个分区是一组有序的消息日志，生产者生产的每条消息只会发送到一个分区中。</p>
+<p>至此，可以完整的串联起kafka的三层消息架构：</p>
+<ol>
+<li>主题层：每个主题可以配置M个分区，每个分区又可以配置N个副本。</li>
+<li>分区层：每个分区的N歌副本中只有一个能充当领导者角色，对外提供服务；其他N-1个副本仅提供数据冗余。</li>
+<li>消息层：分区中包含若干条消息，每个消息位移从0开始，一次递增。</li>
+</ol>
+<p>客户端只能与分区的领导者副本进行交互。</p>
+<ul>
+<li>持久化</li>
+</ul>
+<p>kafka通过日志保存数据，一个日志就是磁盘上一个只能追加写（Append-only）消息的物理文件。</p>
+<blockquote>
+<p><strong>因为只能追加写入，故避免了缓慢的随机 I&#x2F;O 操作，改为性能较好的顺序 I&#x2F;O 写操作，这也是实现 Kafka 高吞吐量特性的一个重要手段</strong></p>
+</blockquote>
+<p>如果只是追加写入的话，最终肯定会耗尽所有的磁盘空间，一次kafka需要定期删除消息文件以回收磁盘。</p>
+<p>通过日志段（Log Segment）的机制，在磁盘上一个日志被分为多个段，消息被追加写到当前最新的日志段中，当写满了一个日志段后，Kafka 会自动切分出一个新的日志段，并将老的日志段封存起来。Kafka 在后台还有定时任务会定期地检查老的日志段是否能够被删除，从而实现回收磁盘空间的目的。</p>
+<p>消费者：Kafka中的点对点是指topic中的一个消息只能给一个消费者消费，Kafka中采用消费者组来实现P2P，同时也可以提升消费者端的吞吐量。同一个消费者组去消费一组主题中的消息，可以让多个消费者同时消费，提升消费端的吞吐量，同时也保证这组主题中的每个分区内的消息只会被该消费者组中的某个或者某几个消费者消费。</p>
+<blockquote>
+<p>每个消费者在消费消息的过程中必然需要有个字段记录它当前消费到了分区的哪个位置上，这个字段就是消费者位移（Consumer Offset）。这和上面所说的位移完全不是一个概念。上面的“位移”表征的是一条消息在该分区内的消息位置，它是不变的，即一旦消息被成功写入到一个分区上，它的位移值就是固定的了。而消费者位移则不同，它可能是随时变化的，它代表着消费者的当前消费进度。另外每个消费者有着自己的消费者位移，因此一定要区分这两类位移的区别。我个人把消息在分区中的位移称为分区位移，而把消费者端的位移称为消费者位移。</p>
+</blockquote>
+<p>重平衡（Rebalance）：假如消费者组内的某个实例挂了，kafka能够自动检测，然后把这个 Failed 实例之前负责的分区转移给其他活着的消费者。</p>
+<p>![image-20230212184645238](&#x2F;Users&#x2F;ondestinies&#x2F;Library&#x2F;Application Support&#x2F;typora-user-images&#x2F;image-20230212184645238.png)</p>
+<p><strong>为什么kafka不像Mysql那样允许追随者副本对外提供读服务呢？</strong></p>
+<p>所谓的读写分离就是主写从读，主要为了分担主节点的读操作的负载，因此读写分离适用于读多写少的场景。Kafka作为一个消息中间件或者流处理平台，更多的场景是生产者不断的将消息写入broker，消费者不断的从broker读数据进行消费，因此读写分离并不适合kafka。如果采用了读写分离，反而会产生一些弊端，比如消费者偏移量的维护更为困难，另外，kafka的follower副本采用的是异步拉取leader副本的方式实现数据同步，因此leader和follower之间必定存在着一定时间范围内的数据不一致，实现主从分离还需要解决数据一致性的问题。</p>
+<p>从另外一个角度上说，kafka没有必要实现读写分离，因此它有着更为适合自己的负载方式，kafka通过为主题设置多个分区的方式实现负载，不同的分区的leader尽可能的分布在不同的broker，实现了读与写的同时负载。</p>
 
       
     </div>
