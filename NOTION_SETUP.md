@@ -39,6 +39,17 @@ npm run sync:notion
 npx hexo clean && npx hexo generate
 ```
 
+## 4.1 一键同步并推送
+写完 Notion 后可直接运行：
+```bash
+npm run publish:notion
+```
+这个命令会自动执行：
+- 拉取远端最新代码（rebase）
+- 从 Notion 同步到 `source/_posts`
+- 有变更就提交并推送到当前分支
+- 推送后由 GitHub Actions 自动部署 Pages
+
 ## 5. GitHub Pages 设置
 仓库 Settings -> Pages -> Build and deployment:
 - Source: `GitHub Actions`

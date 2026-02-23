@@ -7,7 +7,8 @@
     "clean": "hexo clean",
     "deploy": "hexo deploy",
     "server": "hexo server",
-    "sync:notion": "node scripts/sync-notion.mjs"
+    "sync:notion": "node scripts/sync-notion.mjs",
+    "publish:notion": "bash scripts/publish-notion.sh"
   },
   "hexo": {
     "version": "6.3.0"
