@@ -1,0 +1,48 @@
+name: Sync Notion Diary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync from Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PROP_TITLE: ${{ vars.NOTION_PROP_TITLE }}
+          NOTION_PROP_DATE: ${{ vars.NOTION_PROP_DATE }}
+          NOTION_PROP_TAGS: ${{ vars.NOTION_PROP_TAGS }}
+          NOTION_PROP_PUBLISHED: ${{ vars.NOTION_PROP_PUBLISHED }}
+        run: npm run sync:notion
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add source/_posts
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "chore: sync notion diary"
+            git push
+          fi
