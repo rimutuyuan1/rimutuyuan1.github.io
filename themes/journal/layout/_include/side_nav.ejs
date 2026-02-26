@@ -1,0 +1,62 @@
+<div ref="sideContainer" class="side-container">
+    <a class="a-block nav-head <%= is_current('/') && 'active' %>" href="<%= config.root %>">
+        <div class="nav-title">
+            <%- theme.sidebar_title ? theme.sidebar_title : config.title %>
+        </div>
+        <div class="nav-subtitle">
+            <%- theme.sidebar_subtitle ? theme.sidebar_subtitle : config.subtitle %>
+        </div>
+    </a>
+
+    <div class="nav-link-list">
+        <% if (theme.nav_links && theme.nav_links.length) { %>
+        <% theme.nav_links.forEach(function(link){ %>
+        <%
+        var linkPath = link.url || "/";
+        var normalizedPath = linkPath.replace(/^\/|\/$/g, "");
+        var active = linkPath === "/" ? is_home() : is_current(normalizedPath);
+        %>
+        <a class="a-block nav-link-item <%= active && 'active' %>" href="<%= url_for(linkPath) %>">
+            <%= link.name %>
+        </a>
+        <% }); %>
+        <% } else { %>
+        <% if (theme.archives) { %>
+        <a class="a-block no-tint nav-link-item <%= is_current('archives') && 'active' %>" href="<%= config.root + "archives" %>">
+            <%= __('Archive') %>
+        </a>
+        <% } %>
+
+        <% if(site.pages){ %>
+        <% site.pages.each(function (page){ %>
+        <a class="a-block nav-link-item <%= is_current(page.path) && 'active' %>" href="<%= config.root + page.path %>">
+            <%= page.title %>
+        </a>
+        <% });} %>
+
+        <% if (theme.rss) { %>
+        <a class="a-block no-tint nav-link-item" href="<%= config.root + theme.rss %>">
+            <%= __('RSS') %>
+        </a>
+        <% } %>
+        <% } %>
+    </div>
+
+    <% // Please keep the section below and do not make modifications. //  %>
+    <div class="nav-footer">
+        <% if (theme.social_links && theme.social_links.length) { %>
+        <% theme.social_links.forEach(function(link){ %>
+        <a href="<%= link.url %>" target="_blank" rel="noopener noreferrer"><%= link.name %></a><br>
+        <% }); %>
+        <hr>
+        <% } %>
+        <% if (theme.footer_text) { %>
+        <%= theme.footer_text %><br>
+        <% } %>
+        Proudly published with Hexo<br>
+        <%# Please keep the section below and do not make modifications. %>
+        Theme <a href="https://github.com/SumiMakito/hexo-theme-journal/" target="_blank" rel="noreferrer noopener">Journal.</a> by <a href="https://mak1t0.cc/" target="_blank" rel="noreferrer noopener">Makito</a><br>
+        <%# Please keep the section above and do not make modifications. %>
+        &copy; <%= new Date().getFullYear() %> <a href="<%= config.url %>"><%= config.title %></a>
+    </div>
+</div>

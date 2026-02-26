@@ -1,0 +1,20 @@
+sidebar_title: "日暮入桃源"
+sidebar_subtitle: "命数如织，当为磐石"
+
+truncate_len: 140
+archives: true
+rss: atom.xml
+
+nav_links:
+  - name: 文章📖
+    url: /
+  - name: 标签🏷️
+    url: /tags/
+  - name: 关于👋
+    url: /about/
+
+social_links:
+  - name: GitHub
+    url: https://github.com/ondestinies
+
+footer_text: "魔改自 Journal 主题"

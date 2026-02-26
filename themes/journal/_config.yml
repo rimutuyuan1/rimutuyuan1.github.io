@@ -1,0 +1,11 @@
+sidebar_title: "Journal."
+sidebar_subtitle: "隻言片語<br>於此匯聚"
+
+truncate_len: 60
+
+rss: atom.xml
+
+# Choose the comment service according to your need.
+# Please do not use the two services at the same time.
+livere: # [data-uid] for livere.com
+disqus: # [short_name] for disqus.com

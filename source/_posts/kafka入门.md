@@ -1,8 +1,8 @@
 ---
 title: kafka核心技术实战一、kafka入门
-date: 2023-02-12 14:12:11
 tags: kafka核心技术实战
-
+abbrlink: 42309
+date: 2023-02-12 14:12:11
 ---
 
 **一、kafka是什么**

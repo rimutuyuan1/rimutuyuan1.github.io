@@ -1,0 +1,240 @@
+:root {
+  --accent: #1976d2;
+  --accent-hover: #145ca4;
+  --text-1: #1f2937;
+  --text-2: #64748b;
+  --surface-1: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f6f8fa;
+  --border: #d0d7de;
+}
+
+body {
+  background: #fcfcfc;
+  font-family: "Plus Jakarta Sans", "Noto Sans SC", sans-serif;
+  color: var(--text-1);
+}
+
+* {
+  font-family: inherit;
+}
+
+.side-container,
+.single-column-header-container,
+.single-column-nav-container .navbar-brand,
+.single-column-nav-container .material-icons,
+.extra-container,
+.pagination,
+.pagination *,
+.nav-title,
+.post,
+.post-body,
+.post-body *,
+.post-item,
+.post-item * {
+  color: var(--text-1);
+}
+
+.side-container a,
+.single-column-header-container a,
+.single-column-nav-container a,
+.pagination a,
+.pagination-action-icon,
+.drawer-menu-item,
+.nav-link-item {
+  color: var(--text-1);
+}
+
+code,
+pre,
+.highlight * {
+  font-family: "JetBrains Mono", monospace !important;
+}
+
+.nav-title {
+  font-weight: 800;
+}
+
+.nav-subtitle {
+  font-size: 16px;
+  opacity: 0.9;
+  color: var(--text-2);
+}
+
+.nav-link-item {
+  border-radius: 12px;
+  margin-bottom: 6px;
+  padding: 6px 10px !important;
+}
+
+.nav-link-item.active {
+  background: rgba(25, 118, 210, 0.08);
+  color: var(--accent);
+}
+
+.drawer-menu-item.active {
+  border-right-color: var(--accent) !important;
+  background: rgba(25, 118, 210, 0.1) !important;
+  color: var(--accent-hover) !important;
+}
+
+.post-item-wrapper {
+  border-radius: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
+}
+
+.post-item {
+  border-radius: 16px;
+}
+
+.post-item-title {
+  font-weight: 700;
+  line-height: 1.4;
+  color: #1a1a2e;
+}
+
+.post-item-summary {
+  opacity: 0.95;
+  color: var(--text-2);
+}
+
+.post-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #94a3b8;
+}
+
+.post-item-meta .material-icons,
+.post-meta .material-icons,
+.pagination .material-icons {
+  color: #94a3b8;
+}
+
+.post-item-image {
+  border-radius: 12px;
+}
+
+.pin-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.18), rgba(230, 81, 0, 0.2));
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  color: #e65100;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+}
+
+.post-list-container-shadow,
+.post-list-container-no-background {
+  background: transparent;
+}
+
+.post-body {
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+.post-body h1,
+.post-body h2,
+.post-body h3,
+.post-body h4,
+.post-body h5,
+.post-body h6 {
+  margin-top: 1.6em;
+  margin-bottom: 0.65em;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.post-body p,
+.post-body ul,
+.post-body ol,
+.post-body blockquote {
+  margin: 0.9em 0;
+}
+
+.post-body ul,
+.post-body ol {
+  padding-left: 1.4em;
+}
+
+.post-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.post-body blockquote {
+  border-left: 4px solid var(--accent);
+  background: rgba(25, 118, 210, 0.06);
+  color: var(--accent-hover);
+  padding: 10px 14px;
+  border-radius: 6px;
+}
+
+.post-body table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1.1em 0;
+  background: var(--surface-1);
+}
+
+.post-body table thead th {
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+.post-body table th,
+.post-body table td {
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.post-body table tbody tr:nth-child(even) {
+  background: var(--surface-3);
+}
+
+.post-body table tbody tr:hover {
+  background: rgba(25, 118, 210, 0.04);
+}
+
+.post-body img {
+  border-radius: 10px;
+  margin: 0.8em 0;
+}
+
+.post-body a,
+.post-meta a,
+a {
+  color: var(--accent);
+}
+
+.post-body a:hover,
+.post-meta a:hover,
+a:hover {
+  color: var(--accent-hover);
+}
+
+.year,
+.toc .toc-active,
+.tag-title,
+.category-title {
+  color: var(--accent) !important;
+}
+
+@media screen and (max-width: 1020px) {
+  .post-item-wrapper {
+    border-radius: 12px;
+    margin-bottom: 10px;
+  }
+}
